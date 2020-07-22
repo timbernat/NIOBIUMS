@@ -315,7 +315,7 @@ class SPLIT_App:
             self.read_mode.set(None)
         else:           
             result_str = 'No_{}'.format( ', '.join(self.selections) ) 
-            train_file, learn_file = './{}/{}_TTT.txt'.format(result_str, result_str), './{}/{}_LLL.txt'.format(result_str, result_str)
+            train_file, learn_file = './{}/TTT_{}.txt'.format(result_str, result_str), './{}/LLL_{}.txt'.format(result_str, result_str)
             if self.read_mode.get() == 'By Family':
                 self.selections = [species for family in self.selections for species in self.all_species if self.get_family(species) == family]   
 
