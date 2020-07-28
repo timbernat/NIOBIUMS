@@ -1,12 +1,15 @@
 import tkinter as tk
 from tkinter import messagebox
 
-import csv, math, os, re 
+import csv, json, math, os, re 
+import matplotlib.pyplot as plt
+
 from collections import Counter
+from pathlib import Path
 from shutil import rmtree
 
 
-class Dyn_OptionMenu:
+class DynOptionMenu:
     '''My addon to the TKinter OptionMenu, adds methods to conveniently update menu contents'''
     def __init__(self, frame, var, option_method, default=None, width=10, row=0, col=0, colspan=1):
         self.option_method = option_method
@@ -18,15 +21,21 @@ class Dyn_OptionMenu:
         self.var = var
         self.contents = self.menu.children['menu']
         self.update()
+        
+    def enable(self):
+        self.menu.configure(state='normal')
+        
+    def disable(self):
+        self.menu.configure(state='disabled')
     
-    def set_default(self):
+    def reset_default(self):
         self.var.set(self.default)
     
     def update(self):
         self.contents.delete(0, 'end')
         for option in self.option_method():
             self.contents.add_command(label=option, command=lambda x=option: self.var.set(x))
-        self.set_default()
+        self.reset_default()
 
 
 class LabelledEntry:
@@ -251,11 +260,11 @@ class SPLIT_App:
     '''The Separation App itself. NIOBI-UMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOB-IUMS-1.0-alpha')
-        self.main.geometry('445x195')
+        self.main.title('NIOBI-UMS-1.1-alpha')
+        self.main.geometry('445x230')
 
         #Frame 1
-        self.data_frame = ToggleFrame(self.main, 'Select CSV to Read: ', padx=21, pady=5, row=0)
+        self.data_frame = ToggleFrame(self.main, 'Select CSV to Read: ', padx=22, pady=5, row=0)
         self.chosen_file = tk.StringVar()
         self.chem_data = {}
         self.all_species = set()
@@ -264,7 +273,7 @@ class SPLIT_App:
         self.species_count = Counter()
         self.kept_species_count = Counter()
         
-        self.csv_menu = Dyn_OptionMenu(self.data_frame, self.chosen_file, self.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
+        self.csv_menu = DynOptionMenu(self.data_frame, self.chosen_file, self.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
         self.read_label = tk.Label(self.data_frame, text='Read Status:')
         self.read_status = StatusBox(self.data_frame, on_message='CSV Read!', off_message='No File Read', row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh CSVs', command=self.csv_menu.update, padx=15)
@@ -276,11 +285,12 @@ class SPLIT_App:
         
         
         #Frame 2
-        self.species_frame = ToggleFrame(self.main, 'Select a Species to Isolate', padx=32, pady=5, row=1)
+        self.species_frame = ToggleFrame(self.main, 'Set Learn/Test File Parameters:', padx=30, pady=5, row=1)
         self.unfamiliars = []
         self.select_unfams = tk.BooleanVar()
-        self.learn_file_titles = []
-        self.test_file_titles = []
+        self.file_dir = None
+        self.learn_file_labels = []
+        self.test_file_labels = []
 
         self.split_prop_entry = LabelledEntry(self.species_frame, 'Set Proportion for Learn: ', tk.DoubleVar(), default=0.75)
         self.unfam_check = tk.Checkbutton(self.species_frame, text='Unfamiliars?', variable=self.select_unfams, command=self.further_sel)
@@ -290,16 +300,25 @@ class SPLIT_App:
         self.splitting_button.grid(row=1, column=2, sticky='w')
         
         
-        #Misc/Other
-        self.exit_button = tk.Button(self.main, text='Exit', padx=22, pady=23, bg='red', command=self.exit)
-        self.reset_button = tk.Button(self.main, text='Reset', padx=16, pady=12, bg='orange', command=self.reset)
-        self.plot_button = tk.Button(self.main, text='Plot Results (WIP)', padx=134, bg='dodger blue', command=lambda : None)
-        self.exit_button.grid(row=0, column=1)
-        self.reset_button.grid(row=1, column=1)
-        self.plot_button.grid(row=2, column=0)
+        #Frame 3
+        self.plotting_frame = ToggleFrame(self.main, 'Generate Plots from Training Results', padx=13, row=2)
+        self.chosen_train_folder = tk.StringVar()
+        self.result_data = {}
         
-        self.arrays = (self.chem_data, self.family_mapping, self.unfamiliars, self.species_count, self.kept_species_count, self.learn_file_titles, self.test_file_titles)
-        self.frames = (self.data_frame, self.species_frame)
+        self.train_folder_menu = DynOptionMenu(self.plotting_frame, self.chosen_train_folder, self.get_train_folders, default='--Choose a Training Folder--', width=28, colspan=2)
+        self.plot_button = tk.Button(self.plotting_frame, text='Plot Training Results', padx=5, bg='dodger blue', command=self.plot_nnr)
+        
+        self.plot_button.grid(row=0, column=2)
+        
+        
+        #Misc/Other
+        self.exit_button = tk.Button(self.main, text='Exit', padx=22, pady=27, bg='red', command=self.exit)
+        self.reset_button = tk.Button(self.main, text='Reset', padx=16, pady=14, bg='orange', command=self.reset)
+        self.exit_button.grid(row=0, column=1, sticky='s')
+        self.reset_button.grid(row=2, column=1, sticky='s')
+        
+        self.arrays = (self.chem_data, self.family_mapping, self.unfamiliars, self.species_count, self.kept_species_count, self.learn_file_labels, self.test_file_labels, self.result_data)
+        self.frames = (self.data_frame, self.species_frame, self.plotting_frame)
         self.isolate(self.data_frame)
     
     #General Methods
@@ -316,13 +335,28 @@ class SPLIT_App:
         for datum in self.arrays:
             datum.clear() 
         self.all_species, self.families = set(), set()
+        self.file_dir = None
         
         self.read_status.set_status(False)
-        self.csv_menu.set_default()
+        self.csv_menu.reset_default()
         self.split_prop_entry.reset_default()
         self.unfam_check.deselect()
         
         self.isolate(self.data_frame)
+    
+    def get_csvs(self):
+        '''Return a list of all csvs present in the current directory'''
+        csvs_present = tuple(i[:-4] for i in os.listdir() if re.search('.csv\Z', i))
+        if csvs_present == ():
+            csvs_present = (None,)
+        return csvs_present
+    
+    def get_train_folders(self):
+        '''Return a list of all training files folders present in the current directory'''
+        tfs_present = tuple(i for i in os.listdir() if re.search('\ATraining Files', i))
+        if tfs_present == ():
+            tfs_present = (None,)
+        return tfs_present
     
     def exit(self):
         '''Close the application, with confirm prompt'''
@@ -332,8 +366,8 @@ class SPLIT_App:
             
     #Frame 1 (File selection) Methods    
     def get_species(self, species):
-        '''Strips extra numbers off the end of the name of a' species in a csv and just tells you the species name'''
-        return re.sub('(\s|-)\d+\s*\Z', '', species)  # regex to crop off terminal digits in a variety of possible 
+        '''Strips extra numbers off the end of the name of a species in a csv and just tells you the species name'''
+        return re.sub('(\s|-)\d+\s*\Z', '', species)  # regex to crop off terminal digits in a variety of possible str formats 
             
     def get_family(self, species):
         '''Takes the name of a species and returns the chemical family that that species belongs to, based on IUPAC naming conventions'''
@@ -349,14 +383,14 @@ class SPLIT_App:
                             'ether':'Ethers',
                             'one':'Ketones'  }                    
         for regex, family in iupac_suffices.items():
-            # ratioanle for regex: ignore capitalization (particular to ethers), only check end of name (particular to pinac<ol>one)
+            # rationale for regex: ignore capitalization (particular to ethers), only check end of name (particular to pinac<ol>one)
             if re.search('(?i){}\Z'.format(regex), self.get_species(species) ):  
                 return family
     
     def read_chem_data(self): 
         '''Used to read and format the data from the csv provided into a form usable by the training program
         Returns the read data (with vector) and sorted lists of the species and families found in the data'''
-        csv_name = './{}.csv'.format( self.chosen_file.get() )
+        csv_name = '{}.csv'.format( self.chosen_file.get() )
         with open(csv_name, 'r') as file:
             for line in csv.reader(file):
                 instance, spectrum, curr_species = line[0], line[1:], self.get_species(line[0])
@@ -376,13 +410,6 @@ class SPLIT_App:
             for bit in vector:
                 self.chem_data[instance].append(bit)
     
-    def get_csvs(self):
-        '''Update the CSV dropdown selection to catch any changes in the files present'''
-        csvs_present = tuple(i[:-4] for i in os.listdir('.') if re.search('.csv\Z', i))
-        if csvs_present == ():
-            csvs_present = (None,)
-        return csvs_present
-    
     def import_data(self):
         '''Read in data based on the selected data file'''
         if self.chosen_file.get() == '--Choose a CSV--':
@@ -400,41 +427,133 @@ class SPLIT_App:
         if self.select_unfams.get():
             SelectionWindow(self.main, self.species_frame, '960x190', self.all_species, self.unfamiliars, ncols=8)
     
+    def adagraph(self, plot_list, ncols, save_dir):  # ADD AXIS LABELS!
+        '''a general tidy internal graphing utility of my own devising, used to produce all manner of plots during training with one function'''
+        nrows = math.ceil(len(plot_list)/ncols)  #  determine the necessary number of rows needed to accomodate the data
+        display_size = 20                        # 20 seems to be good size for jupyter viewing
+        fig, axs = plt.subplots(nrows, ncols, figsize=(display_size, display_size * nrows/ncols)) 
+        
+        for idx, (plot_data, plot_title, plot_type) in enumerate(plot_list):                         
+            if nrows > 1:                        # locate the current plot, unpack linear index into coordinate
+                row, col = divmod(idx, ncols)      
+                curr_plot = axs[row][col]  
+            else:                                # special case for indexing plots with only one row; my workaround of implementation in matplotlib
+                curr_plot = axs[idx]    
+            curr_plot.set_title(plot_title)
+
+            if plot_type == 'f':               # for plotting fermi-dirac plots
+                num_AAVs = len(plot_data)
+                curr_plot.plot( range(num_AAVs), plot_data, linestyle='-', color='m')  # normalized by dividing by length
+                curr_plot.axis( [0, num_AAVs, 0, 1.05] )
+            elif plot_type == 'p':               # for plotting predictions
+                bar_color = ('Summation' in plot_title and 'r' or 'b')
+                curr_plot.bar( mapping.keys(), plot_data, color=bar_color)  
+                curr_plot.set_ylim(0,1)
+                curr_plot.tick_params(axis='x', labelrotation=45)
+        plt.tight_layout()
+        plt.savefig(save_dir)
+        plt.close('all')
+    
+    
     def separate_and_write(self):
         split_proportion = self.split_prop_entry.get_value()
-        
-        result_str = '{}-{} split'.format(split_proportion, 1 - split_proportion)
         for species, count in self.species_count.items():
-            self.kept_species_count[species] = round(split_proportion*count)   # a separate counter which tells how many of each species should be kept (ignoring any unfamiliars)
+            self.kept_species_count[species] = round(split_proportion*count)   # a separate counter which tells how many of each species should be kept (ignoring any unfamiliars), remains static
         
+        self.file_dir = 'Training Files, {}-{} split'.format(split_proportion, round(1 - split_proportion, 4))  # rounding to 4 places should reduce properly for most typical proportions (noted here for future debugging)
         if self.unfamiliars:
-            result_str = '{}, No {}'.format(result_str, ', '.join(self.unfamiliars))  # if unfamiliars are being selected for, add them to the result name and ensure none will be kept
+            self.file_dir = '{}, No {}'.format(self.file_dir, ', '.join(self.unfamiliars))  # if unfamiliars are being selected for, add them to the result name and ensure none will be kept
             for unfamiliar in self.unfamiliars:
                 self.kept_species_count[unfamiliar] = 0
         
-        file_dir = 'Training Files, ' + result_str
-        if file_dir not in os.listdir('.'):  # check for existing file, overwrite identical file with user permission
-            os.mkdir(file_dir)
+        if self.file_dir not in os.listdir():  # check for existing file, overwrite identical file with user permission
+            os.mkdir(self.file_dir)
         elif messagebox.askyesno('Duplicates Found', 'Folder with same data settings found\nOverwrite old folder?'):
-            rmtree(file_dir, ignore_errors=True)
-            os.mkdir(file_dir)
+            rmtree(self.file_dir, ignore_errors=True)
+            os.mkdir(self.file_dir)
         else:
             return
 
-        test_path, learn_path = '{}/TTT_{}.txt'.format(file_dir, result_str), '{}/LLL_{}.txt'.format(file_dir, result_str)   
-        with open(test_path, 'w') as test_file, open(learn_path, 'w') as learn_file:
-            for instance, data in self.chem_data.items():
-                formatted_entry = '{}\n'.format(instance + '\t'.join(data))
+        with open(Path(self.file_dir, 'TTT_testfile.txt'), 'w') as test_file, open(Path(self.file_dir, 'LLL_learnfile.txt'), 'w') as learn_file:    
+            for instance, data in self.chem_data.items():   # separate read csv data into learn and test files on the basis of the species Counters
+                formatted_entry = '\t'.join(data) + '\n'    # data is tab-separated and follwoed by a newline character for separation
                 curr_species = self.get_species(instance)
                 
-                if self.species_count[curr_species] > self.kept_species_count[curr_species]:
-                    self.test_file_titles.append(instance)
+                if self.species_count[curr_species] > self.kept_species_count[curr_species]:  # if the current amount of a species present is greater than the amount we'd like to keep
+                    self.test_file_labels.append(instance)
                     test_file.write(formatted_entry)
                     self.species_count[curr_species] -= 1
                 else:
-                    self.learn_file_titles.append(instance)
-                    learn_file.write(formatted_entry)   
-        CustomDialog(self.main, self.reset, self.exit)
+                    self.learn_file_labels.append(instance)
+                    learn_file.write(formatted_entry) 
+                               
+        with open(Path(self.file_dir, 'Test Labels.json'), 'w') as test_labels_file, open(Path(self.file_dir, 'Learn Labels.json'), 'w') as learn_labels_file: 
+            json.dump(self.test_file_labels, test_labels_file)    # write the labels associated with each file to jsons for records and later access if replotting
+            json.dump(self.learn_file_labels, learn_labels_file)
+        #CustomDialog(self.main, self.reset, self.exit)
+        messagebox.showinfo('File Creation Complete!', 'Training files created successfully\n\nPlease perform training, then proceed to plotting')
+        
+        self.isolate(self.plotting_frame)
+        self.train_folder_menu.update()
+        #self.train_folder_menu.var.set(self.file_dir)  # make the selection the current folder, sidestep selection
+        self.train_folder_menu.disable()
+        
+        
+    def plot_nnr(self):
+        if 'TTT_testfile_txt.nnr' not in os.listdir(self.file_dir):
+            messagebox.showerror('No NNR File Present!', 'Please perform training before attempting plotting')
+        else:
+            with open(Path(self.file_dir, 'Test Labels.json'), 'r') as test_labels_file:
+                test_labels = json.load(test_labels_file)
+            
+            with open(Path(self.file_dir, 'TTT_testfile_txt.nnr'), 'r') as result_file:
+                for idx, row in enumerate(result_file):
+                    instance, curr_species, curr_family = test_labels[idx], self.get_species(test_labels[idx]), self.get_family(test_labels[idx])
+                                
+                    row_data = tuple( float(i) for i in re.split('\t|\n', row)[1:-1] )  # remove tab and newline chars, cut off empty strings at start and end, and convert to floats
+                    vector, aavs = row_data[:5], row_data[5:], 
+                    target = aavs[vector.index(1)]
+   
+                    if curr_family not in self.result_data:   # ensuring no key errors occur due to missing entry key 
+                        self.result_data[curr_family] = {}
+                    if curr_species not in self.result_data[curr_family]:
+                        self.result_data[curr_family][curr_species] = ( [], [], [], Counter() )
+                    names, preds, fermi_data, corr_count = self.result_data[curr_family][curr_species]
+                    
+                    names.append(instance)
+                    preds.append(aavs)
+                    fermi_data.append(target)
+                    if target == max(aavs):
+                        corr_count['correct'] += 1
+                        
+            os.mkdir(Path(self.file_dir, 'Result Plots'))  # expand this simlar to other file control in order to be a bit more discerning with pre-existing files
+            with open(Path(self.file_dir, 'Result Plots', 'Scores.txt'), 'w') as score_file:       
+                fermi_summary = []
+                
+                for family, species_data in self.result_data.items():
+                    family_header = '{}\n{}\n{}\n'.format('-'*20, family, '-'*20)
+                    score_file.write(family_header)    # an underlined heading for each family
+                    family_scores = []
+                
+                    for species, (names, preds, fermi_data, num_correct) in species_data.items():
+                        num_correct = num_correct['correct']  # clunky and temporary implementation, must use Counter since int wont increment in list for some reason
+                        num_total = len(fermi_data)   # total number of instances for this particular species
+                        family_scores.append( (species, num_correct/num_total) )
+                        
+                        fermi_plot = (sorted(fermi_data, reverse=True), '{}, {}/{} correct'.format(species, num_correct, num_total), 'f')
+                        summation_plot = ([sum(column)/len(column) for column in zip(*preds)], 'Standardized Summation', 'p')
+                        prediction_plots =  zip(preds, names, tuple('p' for i in preds))   # all the prediction plots                
+                        all_plots = (fermi_plot, summation_plot, *prediction_plots)
+                        
+                        fermi_summary.append(fermi_plot)
+                        self.adagraph(all_plots, 6, Path(self.file_dir, 'Result Plots', species+'.png'))                  
+                     
+                    family_scores.sort(key=lambda x : x[1], reverse=True)
+                    for (instance, score) in family_scores:
+                        score_file.write('{} : {}\n'.format(instance, score))
+                        
+            self.adagraph(fermi_summary, 5, Path(self.file_dir, 'Result Plots', 'Fermi Summary.png'))
+            messagebox.showinfo('Plotting Done!', 'Successfully converted NW output into plots')
         
 if __name__ == '__main__':        
     main_window = tk.Tk()
