@@ -447,7 +447,7 @@ class SPLIT_App:
                 curr_plot.axis( [0, num_AAVs, 0, 1.05] )
             elif plot_type == 'p':               # for plotting predictions
                 bar_color = ('Summation' in plot_title and 'r' or 'b')
-                curr_plot.bar( mapping.keys(), plot_data, color=bar_color)  
+                curr_plot.bar( self.family_mapping.keys(), plot_data, color=bar_color)  
                 curr_plot.set_ylim(0,1)
                 curr_plot.tick_params(axis='x', labelrotation=45)
         plt.tight_layout()
