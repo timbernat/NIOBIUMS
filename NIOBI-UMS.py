@@ -577,7 +577,7 @@ class NIOBIUMS_App:
                         fermi_summary.append(fermi_plot)
                         self.adagraph(all_plots, 6, Path(self.file_dir, 'Result Plots', species+'.png'))  
                         if species in self.unfamiliars:
-                            self.adagraph(all_plots, 6, Path('Condensed Unfamiliar Plots')) # make a copy of the results in a shared, accessible folder
+                            self.adagraph(all_plots, 6, Path('Condensed Unfamiliar Plots', species+'.png')) # make a copy of the results in a shared, accessible folder
                         
                     family_scores.sort(key=lambda x : x[1], reverse=True)
                     for (species, score) in family_scores:
