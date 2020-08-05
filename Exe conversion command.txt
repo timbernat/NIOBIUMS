@@ -1,1 +1,1 @@
-pyinstaller --onefile -w --icon=split.ico NIOBI-UMS.py
+pyinstaller --onefile -w --icon=niobium.ico NIOBI-UMS.py
