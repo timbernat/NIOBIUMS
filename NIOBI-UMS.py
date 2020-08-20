@@ -1,231 +1,18 @@
 import tkinter as tk
 from tkinter import messagebox
 from tkinter.ttk import Progressbar
+import TimTkLib as ttl       # my own tkinter widget library, makes GUI assembly a lot more straightforward
 
 import csv, json, math, os, re   # consider replacing "os" utilities with "pathlib" equivalents
 import matplotlib.pyplot as plt
 
 from collections import Counter
 from pathlib import Path
-from shutil import rmtree
-
-
-class DynOptionMenu:
-    '''My addon to the TKinter OptionMenu, adds methods to conveniently update menu contents'''
-    def __init__(self, frame, var, option_method, default=None, width=10, row=0, col=0, colspan=1):
-        self.option_method = option_method
-        self.default=default
-        self.menu = tk.OptionMenu(frame, var, (None,) )
-        self.menu.configure(width=width)
-        self.menu.grid(row=row, column=col, columnspan=colspan)
-        
-        self.var = var
-        self.contents = self.menu.children['menu']
-        self.update()
-        
-    def enable(self):
-        self.menu.configure(state='normal')
-        
-    def disable(self):
-        self.menu.configure(state='disabled')
-    
-    def reset_default(self):
-        self.var.set(self.default)
-    
-    def update(self):
-        self.contents.delete(0, 'end')
-        for option in self.option_method():
-            self.contents.add_command(label=option, command=lambda x=option: self.var.set(x))
-        self.reset_default()
-
-
-class LabelledEntry:
-    '''An entry with an adjacent label to the right. Use "self.get_value()" method to retrieve state of
-    variable. Be sure to leave two columns worth of space for this widget'''
-    def __init__(self, frame, text, var, state='normal', default=None, width=10, row=0, col=0):
-        self.default = default
-        self.var = var
-        self.reset_default()
-        self.label = tk.Label(frame, text=text, state=state)
-        self.label.grid(row=row, column=col)
-        self.entry = tk.Entry(frame, width=width, textvariable=self.var, state=state)
-        self.entry.grid(row=row, column=col+1)
-        
-    def get_value(self):
-        return self.var.get()
-    
-    def set_value(self, value):
-        self.var.set(value)
-    
-    def reset_default(self):
-        self.var.set(self.default)
-    
-    def configure(self, **kwargs):   # allows for disabling in ToggleFrames
-        self.label.configure(**kwargs)
-        self.entry.configure(**kwargs)
-
-
-class ToggleFrame(tk.LabelFrame):
-    '''A frame whose contents can be easily disabled or enabled, If starting disabled, must put "self.disable()"
-    AFTER all widgets have been added to the frame'''
-    def __init__(self, window, text, default_state='normal', padx=5, pady=5, row=0, col=0):
-        tk.LabelFrame.__init__(self, window, text=text, padx=padx, pady=pady, bd=2, relief='groove')
-        self.grid(row=row, column=col)
-        self.state = default_state
-        self.apply_state()
-    
-    def apply_state(self):
-        for widget in self.winfo_children():
-            widget.configure(state = self.state)
-            
-    def enable(self):
-        self.state = 'normal'
-        self.apply_state()
-     
-    def disable(self):
-        self.state ='disabled'
-        self.apply_state()
-    
-    def toggle(self):
-        if self.state == 'normal':
-            self.disable()
-        else:
-            self.enable()
-
-
-class StatusBox:
-    '''A simple label which changes color and gives indictation of the status of something'''
-    def __init__(self, frame, on_message='On', off_message='Off', status=False, width=17, padx=0, row=0, col=0):
-        self.on_message = on_message
-        self.off_message = off_message
-        self.status_box = tk.Label(frame, width=width, padx=padx)
-        self.status_box.grid(row=row, column=col)
-        self.set_status(status)
-        
-    def set_status(self, status):
-        if type(status) != bool:
-            raise Exception(TypeError)
-        
-        if status:
-            self.status_box.configure(bg='green2', text=self.on_message)
-        else:
-            self.status_box.configure(bg='light gray', text=self.off_message)
-
-            
-class Switch: 
-    '''A switch button, clicking inverts the boolean state and button display. State can be accessed via
-    the <self>.state() method or with the <self>.var.get() attribute to use dynamically with tkinter'''
-    def __init__(self, frame, text, value=False, dep_state='normal', dependents=None, width=10, row=0, col=0):
-        self.label = tk.Label(frame, text=text)
-        self.label.grid(row=row, column=col)
-        self.switch = tk.Button(frame, width=width, command=self.toggle)
-        self.switch.grid(row=row, column=col+1)
-    
-        self.dependents = dependents
-        self.dep_state = dep_state
-        self.value = value
-        self.apply_state()
-    
-    def get_text(self):
-        return self.value and 'Enabled' or 'Disabled'
-        
-    def get_color(self):
-        return self.value and 'green2' or 'red' 
-    
-    def apply_state(self):
-        self.dep_state = (self.value and 'normal' or 'disabled')
-        self.switch.configure(text=self.get_text(), bg=self.get_color())
-        if self.dependents:
-            for widget in self.dependents:
-                widget.configure(state=self.dep_state)
-                
-    def enable(self):
-        self.value = True
-        self.apply_state()
-     
-    def disable(self):
-        self.value = False
-        self.apply_state()
-    
-    def toggle(self):
-        if self.value:
-            self.disable()
-        else:
-            self.enable()  
-            
-
-class GroupableCheck():
-    '''A checkbutton which will add or remove its value to an output list
-    (passed as an argument when creating an instance) based on its check status'''
-    def __init__(self, frame, value, output, state='normal', row=0, col=0):
-        self.var = tk.StringVar()
-        self.value = value
-        self.output = output
-        self.state = state
-        self.cb = tk.Checkbutton(frame, text=value, variable=self.var, onvalue=self.value, offvalue=None,
-                              state=self.state, command=self.edit_output)
-        self.cb.grid(row=row, column=col, sticky='w')
-        self.cb.deselect()
-        
-    def edit_output(self):
-        if self.var.get() == self.value:
-            self.output.append(self.value)
-        else:
-            self.output.remove(self.value)
-            
-    def configure(self, **kwargs):
-        self.cb.configure(**kwargs)
-            
-class CheckPanel():
-    '''A panel of GroupableChecks, allows for simple selectivity of the contents of some list'''
-    def __init__(self, frame, data, output, state='normal', ncols=4, row_start=0, col_start=0):
-        self.output = output
-        self.state = state
-        self.row_span = math.ceil(len(data)/ncols)
-        self.panel = [ GroupableCheck(frame, val, output, state=self.state, row=row_start + i//ncols,
-                                      col=col_start + i%ncols) for i, val in enumerate(data) ]
-        
-    def wipe_output(self):
-        self.output.clear()
-        
-    def apply_state(self):
-        for gc in self.panel:
-            gc.configure(state=self.state)
-    
-    def enable(self):
-        self.state = 'normal'
-        self.apply_state()
-     
-    def disable(self):
-        self.state = 'disabled'
-        self.apply_state()
-    
-    def toggle(self):
-        if self.state == 'normal':
-            self.disable()
-        else:
-            self.enable()        
-        
-class SelectionWindow():
-    '''The window used to select unfamiliars'''
-    def __init__(self, main, parent_frame, size, selections, output, ncols=1):
-        self.window = tk.Toplevel(main)
-        self.window.title('Select speciess to Include')
-        self.window.geometry(size)
-        self.parent = parent_frame
-        self.parent.disable()
-        
-        self.panel = CheckPanel(self.window, selections, output, ncols=ncols)
-        self.confirm = tk.Button(self.window, text='Confirm Selection', command=self.confirm, padx=5)
-        self.confirm.grid(row=self.panel.row_span, column=ncols-1)
-
-    def confirm(self):
-        self.parent.enable()
-        self.window.destroy()       
+from shutil import rmtree     
 
 
 class PlottingWindow:
-    '''The window which displays plotting progress, was easier to subclass outside of the main GUI class'''
+    '''A window which displays plotting progress, was easier to subclass outside of the main GUI class'''
     def __init__(self, main, num_cycles):
         self.main = main
         self.training_window = tk.Toplevel(main)
@@ -236,7 +23,7 @@ class PlottingWindow:
         self.num_cycles = num_cycles
         
         # Status Printouts
-        self.status_frame = ToggleFrame(self.training_window, '', padx=13)
+        self.status_frame = ttl.ToggleFrame(self.training_window, '', padx=13)
         
         self.species_label = tk.Label(self.status_frame, text='Currently Plotting: ')
         self.curr_species = tk.Label(self.status_frame)
@@ -245,8 +32,8 @@ class PlottingWindow:
         
         self.species_label.grid(  row=0, column=0)
         self.curr_species.grid(   row=0, column=1, sticky='w')
-        self.progress_label.grid(row=1, column=0)
-        self.progress.grid(      row=1, column=1, sticky='w')
+        self.progress_label.grid( row=1, column=0)
+        self.progress.grid(       row=1, column=1, sticky='w')
         
         self.reset()
         
@@ -260,7 +47,7 @@ class PlottingWindow:
         self.main.update()
         
     def set_next_species(self, species):  
-        '''Meant for incrementing progress with each new species'''
+        '''For straightforwardly incrementing progress with each new species'''
         self.set_species(species)
         self.curr_cycle += 1
         self.set_progress(self.curr_cycle)
@@ -282,7 +69,7 @@ class NIOBIUMS_App:
         self.main.geometry('445x230')
 
         #Frame 1
-        self.data_frame = ToggleFrame(self.main, 'Select CSV to Read: ', padx=22, pady=5, row=0)
+        self.data_frame = ttl.ToggleFrame(self.main, 'Select CSV to Read: ', padx=22, pady=5, row=0)
         self.chosen_file = tk.StringVar()
         self.chem_data = {}
         self.all_species = set()
@@ -291,9 +78,9 @@ class NIOBIUMS_App:
         self.species_count = Counter()
         self.kept_species_count = Counter()
         
-        self.csv_menu = DynOptionMenu(self.data_frame, self.chosen_file, self.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
+        self.csv_menu = ttl.DynOptionMenu(self.data_frame, self.chosen_file, self.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
         self.read_label = tk.Label(self.data_frame, text='Read Status:')
-        self.read_status = StatusBox(self.data_frame, on_message='CSV Read!', off_message='No File Read', row=1, col=1)
+        self.read_status = ttl.StatusBox(self.data_frame, on_message='CSV Read!', off_message='No File Read', row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh CSVs', command=self.csv_menu.update, padx=15)
         self.confirm_button = tk.Button(self.data_frame, text='Confirm Selection', padx=2, command=self.import_data)
         
@@ -303,12 +90,12 @@ class NIOBIUMS_App:
         
         
         #Frame 2
-        self.species_frame = ToggleFrame(self.main, 'Set Learn/Test File Parameters:', padx=30, pady=5, row=1)
+        self.species_frame = ttl.ToggleFrame(self.main, 'Set Learn/Test File Parameters:', padx=30, pady=5, row=1)
         self.unfamiliars = []
         self.select_unfams = tk.BooleanVar()
         self.file_dir = None
 
-        self.split_prop_entry = LabelledEntry(self.species_frame, 'Set Proportion for Learn: ', tk.DoubleVar(), default=0.8)
+        self.split_prop_entry = ttl.LabelledEntry(self.species_frame, 'Set Proportion for Learn: ', tk.DoubleVar(), default=0.8)
         self.unfam_check = tk.Checkbutton(self.species_frame, text='Unfamiliars?', variable=self.select_unfams, command=self.further_sel)
         self.splitting_button = tk.Button(self.species_frame, text='Perform Splitting', padx=2, command=self.separate_and_write)
         
@@ -317,11 +104,11 @@ class NIOBIUMS_App:
         
         
         #Frame 3
-        self.plotting_frame = ToggleFrame(self.main, 'Generate Plots from Training Results', padx=13, row=2)
+        self.plotting_frame = ttl.ToggleFrame(self.main, 'Generate Plots from Training Results', padx=13, row=2)
         self.chosen_train_folder = tk.StringVar()
         self.result_data = {}
         
-        self.train_folder_menu = DynOptionMenu(self.plotting_frame, self.chosen_train_folder, self.get_train_folders, default='--Choose a Training Folder--', width=28, colspan=2)
+        self.train_folder_menu = ttl.DynOptionMenu(self.plotting_frame, self.chosen_train_folder, self.get_train_folders, default='--Choose a Training Folder--', width=28, colspan=2)
         self.plot_button = tk.Button(self.plotting_frame, text='Plot Training Results', padx=5, bg='dodger blue', command=self.plot_nnr)
         
         self.plot_button.grid(row=0, column=2)
@@ -444,7 +231,7 @@ class NIOBIUMS_App:
         '''logic for selection of speciess to include in training'''
         self.unfamiliars.clear()
         if self.select_unfams.get():
-            SelectionWindow(self.main, self.species_frame, '960x190', self.all_species, self.unfamiliars, ncols=8)
+            ttl.SelectionWindow(self.main, self.species_frame, '960x190', self.all_species, self.unfamiliars, ncols=8)
     
     def adagraph(self, plot_list, ncols, save_dir):  # ADD AXIS LABELS!
         '''a general tidy internal graphing utility of my own devising, used to produce all manner of plots during training with one function'''
