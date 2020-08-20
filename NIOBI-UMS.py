@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
 from tkinter.ttk import Progressbar
+
+import iumsutils
 import TimTkLib as ttl       # my own tkinter widget library, makes GUI assembly a lot more straightforward
 
 import csv, json, math, os, re   # consider replacing "os" utilities with "pathlib" equivalents
@@ -78,7 +80,7 @@ class NIOBIUMS_App:
         self.species_count = Counter()
         self.kept_species_count = Counter()
         
-        self.csv_menu = ttl.DynOptionMenu(self.data_frame, self.chosen_file, self.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
+        self.csv_menu = ttl.DynOptionMenu(self.data_frame, self.chosen_file, iumsutils.get_csvs, default='--Choose a CSV--', width=28, colspan=2)
         self.read_label = tk.Label(self.data_frame, text='Read Status:')
         self.read_status = ttl.StatusBox(self.data_frame, on_message='CSV Read!', off_message='No File Read', row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh CSVs', command=self.csv_menu.update, padx=15)
@@ -147,23 +149,12 @@ class NIOBIUMS_App:
         
         self.isolate(self.data_frame)
     
-    def get_csvs(self):
-        '''Return a list of all csvs present in the current directory'''
-        csvs_present = tuple(i for i in os.listdir() if re.search('.csv\Z', i))
-        if csvs_present == ():
-            csvs_present = (None,)
-        return csvs_present
-    
-    def get_train_folders(self):
+    def get_train_folders(self):  # NOTE: consider converting this to a regex-dependent expression based on DynOptionMenu in TimTkLib
         '''Return a list of all training files folders present in the current directory'''
         tfs_present = tuple(i for i in os.listdir() if re.search('\ATraining Files', i))
         if tfs_present == ():
             tfs_present = (None,)
         return tfs_present
-    
-    def average(self, iterable):
-        '''Calculate the average of an iterable'''
-        return sum(iterable)/len(iterable)
     
     def exit(self):
         '''Close the application, with confirm prompt'''
@@ -171,40 +162,18 @@ class NIOBIUMS_App:
             self.main.destroy()
             
             
-    #Frame 1 (File selection) Methods    
-    def get_species(self, instance):
-        '''Strips extra numbers off the end of the name of a species in a csv and just tells you the species name'''
-        return re.sub('(\s|-)\d+\s*\Z', '', instance)  # regex to crop off terminal digits in a variety of possible str formats 
-            
-    def get_family(self, species):
-        '''Takes the name of a species and returns the chemical family that that species belongs to, based on IUPAC naming conventions'''
-        iupac_suffices = {  'ate':'Acetates',
-                            'ol':'Alcohols',
-                            'al':'Aldehydes',
-                            'ane':'Alkanes',
-                            'ene':'Alkenes',
-                            'yne':'Alkynes',
-                            'ine':'Amines',
-                            'oic acid': 'Carboxylic Acids',
-                            #'ate':'Esters',
-                            'ether':'Ethers',
-                            'one':'Ketones'  }                    
-        for regex, family in iupac_suffices.items():
-            # rationale for regex: ignore capitalization (particular to ethers), only check end of name (particular to pinac<ol>one)
-            if re.search('(?i){}\Z'.format(regex), self.get_species(species) ):  
-                return family
-    
+    #Frame 1 (File selection) Methods     
     def read_chem_data(self): 
         '''Used to read and format the data from the csv provided into a form usable by the training program
         Returns the read data (with vector) and sorted lists of the species and families found in the data'''
         with open(self.chosen_file.get(), 'r') as file:
             for line in csv.reader(file):
-                instance, spectrum, curr_species = line[0], line[1:], self.get_species(line[0])
+                instance, spectrum, curr_species = line[0], line[1:], iumsutils.isolate_species(line[0])
                 
                 self.chem_data[instance] = spectrum
                 self.all_species.add(curr_species)
                 self.species_count[curr_species] += 1
-                self.families.add( self.get_family(instance) )
+                self.families.add( iumsutils.get_family(instance) )
         self.all_species, self.families = sorted(self.all_species), sorted(self.families)  # sort and convert to lists
         
         for family in self.families:
@@ -212,7 +181,7 @@ class NIOBIUMS_App:
             self.family_mapping[family] = one_hot_vector
                                    
         for instance in self.chem_data.keys():  # add mapping vector to all data entries
-            vector = self.family_mapping[ self.get_family(instance) ]
+            vector = self.family_mapping[ iumsutils.get_family(instance) ]
             for bit in vector:
                 self.chem_data[instance].append(bit)
     
@@ -288,7 +257,7 @@ class NIOBIUMS_App:
         with open(Path(self.file_dir, 'TTT_testfile.txt'), 'w') as test_file, open(Path(self.file_dir, 'LLL_learnfile.txt'), 'w') as learn_file:    
             for instance, data in self.chem_data.items():   # separate read csv data into learn and test files on the basis of the species Counters
                 formatted_entry = '\t'.join(data) + '\n'    # data is tab-separated and follwoed by a newline character for separation
-                curr_species = self.get_species(instance)
+                curr_species = iumsutils.isolate_species(instance)
                 
                 if self.species_count[curr_species] > self.kept_species_count[curr_species]:  # if the current amount of a species present is greater than the amount we'd like to keep
                     test_labels.append(instance)
@@ -319,7 +288,7 @@ class NIOBIUMS_App:
             num_plots = 1 # start count at 1 to account for the extra Fermi Plot summary
             with open(Path(self.file_dir, 'TTT_testfile_txt.nnr'), 'r') as result_file:
                 for idx, row in enumerate(result_file):
-                    instance, curr_species, curr_family = test_labels[idx], self.get_species(test_labels[idx]), self.get_family(test_labels[idx])
+                    instance, curr_species, curr_family = test_labels[idx], iumsutils.isolate_species(test_labels[idx]), iumsutils.get_family(test_labels[idx])
                                 
                     row_data = tuple( float(i) for i in re.split('\t|\n', row)[1:-1] )  # remove tab and newline chars, cut off empty strings at start and end, and convert to floats
                     vector, aavs = row_data[:5], row_data[5:], 
@@ -357,7 +326,7 @@ class NIOBIUMS_App:
                         family_scores.append((species, score))
                         
                         fermi_plot = (sorted(fermi_data, reverse=True), '{}, {}/{} correct'.format(species, num_correct, num_total), 'f')
-                        summation_plot = ([self.average(column) for column in zip(*predictions)], 'Standardized Summation', 'p')
+                        summation_plot = ([iumsutils.average(column) for column in zip(*predictions)], 'Standardized Summation', 'p')
                         prediction_plots =  zip(predictions, names, tuple('p' for i in predictions))   # all the prediction plots                
                         all_plots = (fermi_plot, summation_plot, *prediction_plots)
                         
@@ -365,7 +334,8 @@ class NIOBIUMS_App:
                         self.adagraph(all_plots, 6, Path(self.file_dir, 'Result Plots', species+'.png'))  
                         if species in self.unfamiliars:
                             self.adagraph(all_plots, 6, Path('Condensed Unfamiliar Plots', species+'.png')) # make a copy of the results in a shared, accessible folder
-                        
+                     
+                    # NOTE: add averages buy family!!
                     family_scores.sort(key=lambda x : x[1], reverse=True)
                     for (species, score) in family_scores:
                         score_file.write('{} : {}\n'.format(species, score))
