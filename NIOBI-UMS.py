@@ -71,7 +71,7 @@ class NIOBIUMS_App:
         self.main.geometry('445x230')
 
         #Frame 1
-        self.data_frame = ttl.ToggleFrame(self.main, 'Select CSV to Read: ', padx=22, pady=5, row=0)
+        self.data_frame = ttl.ToggleFrame(self.main, 'Select CSV to Read: ', padx=22, pady=5)
         self.chosen_file = tk.StringVar()
         self.chem_data = {}
         self.all_species = set()
@@ -200,32 +200,6 @@ class NIOBIUMS_App:
         if self.select_unfams.get():
             ttl.SelectionWindow(self.main, self.species_frame, '960x190', self.all_species, self.unfamiliars, ncols=8)
     
-    def adagraph(self, plot_list, ncols, save_dir):  # ADD AXIS LABELS!
-        '''a general tidy internal graphing utility of my own devising, used to produce all manner of plots during training with one function'''
-        nrows = math.ceil(len(plot_list)/ncols)  #  determine the necessary number of rows needed to accomodate the data
-        display_size = 20                        # 20 seems to be good size for jupyter viewing
-        fig, axs = plt.subplots(nrows, ncols, figsize=(display_size, display_size * nrows/ncols)) 
-        
-        for idx, (plot_data, plot_title, plot_type) in enumerate(plot_list):                         
-            if nrows > 1:                        # locate the current plot, unpack linear index into coordinate
-                row, col = divmod(idx, ncols)      
-                curr_plot = axs[row][col]  
-            else:                                # special case for indexing plots with only one row; my workaround of implementation in matplotlib
-                curr_plot = axs[idx]    
-            curr_plot.set_title(plot_title)
-
-            if plot_type == 'f':               # for plotting fermi-dirac plots
-                curr_plot.plot(plot_data, 'm-')  
-                curr_plot.set_ylim(0, 1.05)
-            elif plot_type == 'p':               # for plotting predictions
-                curr_plot.bar( self.family_mapping.keys(), plot_data, color=('Summation' in plot_title and 'r' or 'b'))  
-                curr_plot.set_ylim(0,1)
-                curr_plot.tick_params(axis='x', labelrotation=45)
-        plt.tight_layout()
-        plt.savefig(save_dir)
-        plt.close('all')
-    
-    
     def separate_and_write(self):
         split_proportion = self.split_prop_entry.get_value()
         split_complement = round(1 - split_proportion, 4)   # rounding to 4 places should avoid float error for typical proportions (noted here for future debugging)
@@ -323,22 +297,24 @@ class NIOBIUMS_App:
                         family_scores.append((species, score))
                         
                         fermi_plot = (sorted(fermi_data, reverse=True), '{}, {}/{} correct'.format(species, num_correct, num_total), 'f')
-                        summation_plot = ([iumsutils.average(column) for column in zip(*predictions)], 'Standardized Summation', 'p')
-                        prediction_plots =  zip(predictions, names, tuple('p' for i in predictions))   # all the prediction plots                
-                        all_plots = (fermi_plot, summation_plot, *prediction_plots)
+                        predictions.insert(0, [iumsutils.average(column) for column in zip(*predictions)]) # prepend standardized sum of predictions to predictions
+                        names.insert(0, 'Standardized Summation') # prepend label to the above list to the titles list
+                        prediction_plots = [((self.family_mapping.keys(), prediction), names[i], 'p') for i, prediction in enumerate(predictions)]
+                        
+                        all_plots = (fermi_plot, *prediction_plots)
                         
                         fermi_summary.append(fermi_plot)
-                        self.adagraph(all_plots, 6, Path(self.file_dir, 'Result Plots', species+'.png'))  
+                        iumsutils.adagraph(all_plots, 6, Path(self.file_dir, 'Result Plots', species + '.png'))  
                         if species in self.unfamiliars:
-                            self.adagraph(all_plots, 6, Path('Condensed Unfamiliar Plots', species+'.png')) # make a copy of the results in a shared, accessible folder
-                     
-                    # NOTE: add averages buy family!!
+                            iumsutils.adagraph(all_plots, 6, Path('Condensed Unfamiliar Plots', species +'.png')) # make a copy of the results in a shared, accessible folder
+
                     family_scores.sort(key=lambda x : x[1], reverse=True)
+                    family_scores.append( ('AVERAGE', iumsutils.average(tuple(i[1] for i in family_scores), precision=4)) )   # must add average AFTER sorting to list at bottom
                     for (species, score) in family_scores:
                         score_file.write('{} : {}\n'.format(species, score))
                         
             plot_window.set_next_species('Fermi Plot Summary')
-            self.adagraph(fermi_summary, 5, Path(self.file_dir, 'Result Plots', 'Fermi Summary.png'))
+            iumsutils.adagraph(fermi_summary, 5, Path(self.file_dir, 'Result Plots', 'Fermi Summary.png'))
             
             plot_window.destroy()
             messagebox.showinfo('Plotting Done!', 'Successfully converted NW output into plots')
