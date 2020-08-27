@@ -84,11 +84,10 @@ class NIOBIUMS_App:
         self.read_label = tk.Label(self.data_frame, text='Read Status:')
         self.read_status = ttl.StatusBox(self.data_frame, on_message='CSV Read!', off_message='No File Read', row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh CSVs', command=self.csv_menu.update, padx=15)
-        self.confirm_button = tk.Button(self.data_frame, text='Confirm Selection', padx=2, command=self.import_data)
+        self.confirm_button = ttl.ConfirmButton(self.data_frame, self.import_data, padx=2, row=1, col=2)
         
         self.refresh_button.grid(row=0, column=2)
         self.read_label.grid(row=1, column=0)
-        self.confirm_button.grid(row=1, column=2)
         
         
         #Frame 2
@@ -167,23 +166,22 @@ class NIOBIUMS_App:
         '''Used to read and format the data from the csv provided into a form usable by the training program
         Returns the read data (with vector) and sorted lists of the species and families found in the data'''
         with open(self.chosen_file.get(), 'r') as file:
-            for line in csv.reader(file):
-                instance, spectrum, curr_species = line[0], line[1:], iumsutils.isolate_species(line[0])
+            for row in csv.reader(file):
+                instance, curr_species, spectrum = row[0], iumsutils.isolate_species(row[0]), [float(i) for i in row[1:]]
                 
                 self.chem_data[instance] = spectrum
                 self.all_species.add(curr_species)
                 self.species_count[curr_species] += 1
-                self.families.add( iumsutils.get_family(instance) )
+                self.families.add(iumsutils.get_family(instance))
         self.all_species, self.families = sorted(self.all_species), sorted(self.families)  # sort and convert to lists
         
         for family in self.families:
-            one_hot_vector = [i == family and '1' or '0' for i in self.families]  # bits must be str, not int, for writing reasons
+            one_hot_vector = [int(i == family) for i in self.families]  # bits must be str, not int, for writing reasons
             self.family_mapping[family] = one_hot_vector
                                    
-        for instance in self.chem_data.keys():  # add mapping vector to all data entries
-            vector = self.family_mapping[ iumsutils.get_family(instance) ]
-            for bit in vector:
-                self.chem_data[instance].append(bit)
+        for instance, data in self.chem_data.items():  # add mapping vector to all data entries
+            vector = self.family_mapping[iumsutils.get_family(instance)]
+            self.chem_data[instance] = (data, vector)
     
     def import_data(self):
         '''Read in data based on the selected data file'''
@@ -217,12 +215,10 @@ class NIOBIUMS_App:
             curr_plot.set_title(plot_title)
 
             if plot_type == 'f':               # for plotting fermi-dirac plots
-                num_AAVs = len(plot_data)
-                curr_plot.plot( range(num_AAVs), plot_data, linestyle='-', color='m')  # normalized by dividing by length
-                curr_plot.axis( [0, num_AAVs, 0, 1.05] )
+                curr_plot.plot(plot_data, 'm-')  
+                curr_plot.set_ylim(0, 1.05)
             elif plot_type == 'p':               # for plotting predictions
-                bar_color = ('Summation' in plot_title and 'r' or 'b')
-                curr_plot.bar( self.family_mapping.keys(), plot_data, color=bar_color)  
+                curr_plot.bar( self.family_mapping.keys(), plot_data, color=('Summation' in plot_title and 'r' or 'b'))  
                 curr_plot.set_ylim(0,1)
                 curr_plot.tick_params(axis='x', labelrotation=45)
         plt.tight_layout()
@@ -255,8 +251,9 @@ class NIOBIUMS_App:
         
         learn_labels, test_labels = [], []
         with open(Path(self.file_dir, 'TTT_testfile.txt'), 'w') as test_file, open(Path(self.file_dir, 'LLL_learnfile.txt'), 'w') as learn_file:    
-            for instance, data in self.chem_data.items():   # separate read csv data into learn and test files on the basis of the species Counters
-                formatted_entry = '\t'.join(data) + '\n'    # data is tab-separated and follwoed by a newline character for separation
+            for instance, (spectrum, vector) in self.chem_data.items():   # separate read csv data into learn and test files on the basis of the species Counters
+                stringy_data = [str(i) for i in spectrum] + [str(i) for i in vector] # convert numerical data to str for writing, expand tailing vector
+                formatted_entry = '\t'.join(stringy_data) + '\n'    # data is tab-separated and followed by a newline character for separation
                 curr_species = iumsutils.isolate_species(instance)
                 
                 if self.species_count[curr_species] > self.kept_species_count[curr_species]:  # if the current amount of a species present is greater than the amount we'd like to keep
