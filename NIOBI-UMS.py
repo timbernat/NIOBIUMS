@@ -4,7 +4,7 @@ from tkinter import messagebox
 from tkinter import filedialog
 
 # Custom imports
-import iumsutils           # library of functions specific to my "-IUMS" class of IMS Neural Network applications
+import r_iumsutils as iumsutils           # library of functions specific to my "-IUMS" class of IMS Neural Network applications
 import TimTkLib as ttl     # library of custom tkinter widgets I've written to make GUI assembly more straightforward
 
 # Builtin imports (expect for matplotlib)
@@ -285,9 +285,12 @@ class NIOBIUMS_App:
                     all_plots = (fermi_plot, *prediction_plots)
 
                     fermi_summary.append(fermi_plot)
-                    iumsutils.adagraph(all_plots, save_dir=result_dir/f'{species}.png')  
+                    iumsutils.adagraph(all_plots, save_dir=result_dir/species)  
                     if species in self.unfamiliars:
-                        iumsutils.adagraph(all_plots, save_dir='Condensed Unfamiliar Plots'/f'{species}.png') # make a copy of the results in a shared, accessible folder
+                        unfam_dir = Path(self.file_dir.parent,'Condensed Unfamiliar Plots')
+                        if not unfam_dir.exists(): # ensure a condensed unfam plot folder really exists
+                            unfam_dir.mkdir(parents=True)
+                        iumsutils.adagraph(all_plots, save_dir=unfam_dir/species) # make a copy of the results in a shared, accessible folder
 
                 family_scores.sort(key=lambda x : x[1], reverse=True)
                 family_scores.append( ('AVERAGE', iumsutils.average([score for (species, score) in family_scores], precision=4)) ) #note the average method does not accept generators
