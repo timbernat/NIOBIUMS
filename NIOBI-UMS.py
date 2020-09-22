@@ -53,7 +53,7 @@ class NIOBIUMS_App:
     '''The Separation App itself. NIOBI-UMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOBI-UMS v1.2-beta')
+        self.main.title('NIOBI-UMS v1.3-beta')
         self.main.geometry('412x197')
 
         #Frame 1
@@ -269,19 +269,21 @@ class NIOBIUMS_App:
                 for species, (names, predictions, fermi_data, num_correct) in species_data.items():
                     plot_window.set_next_species(species)
 
-                    score = round(num_correct/len(predictions), 4)
+                    num_total = len(predictions) # NOTE!! must do this here, as after prepending the summary, all scores will be one longer than they should be
+                    score = round(num_correct/num_total, 4) # for future, consider an alternate way of counting totals (likely once num_correct gets sorted out)
                     family_scores.append((species, score))
-
-                    predictions.insert(0, [iumsutils.average(column) for column in zip(*predictions)]) # prepend standardized sum of predictions to predictions
-                    names.insert(0, 'Standardized Summation')                                          # prepend label to the above list to the titles list
-                    prediction_plots = [ ((self.family_mapping.keys(), prediction), name, 'p') for name, prediction in zip(names, predictions) ] # all the prediction plots 
                     
                     fermi_data.sort(reverse=True)
                     try:
                         fermi_data = iumsutils.normalized(fermi_data)
                     except ZeroDivisionError: # if all data have the same value (e.g all 1.0), max=min and min/max normalization will fail
                         pass                  # skip over the set if this is the case               
-                    fermi_plot = (fermi_data, f'{species}, {num_correct}/{len(predictions)} correct', 'f')
+                    fermi_plot = (fermi_data, f'{species}, {num_correct}/{num_total} correct', 'f')
+
+                    predictions.insert(0, [iumsutils.average(column) for column in zip(*predictions)]) # prepend standardized sum of predictions to predictions
+                    names.insert(0, 'Standardized Summation')                                          # prepend label to the above list to the titles list
+                    prediction_plots = [ ((self.family_mapping.keys(), prediction), name, 'p') for name, prediction in zip(names, predictions) ] # all the prediction plots 
+                    
                     all_plots = (fermi_plot, *prediction_plots)
 
                     fermi_summary.append(fermi_plot)
@@ -301,7 +303,8 @@ class NIOBIUMS_App:
         iumsutils.adagraph(fermi_summary, ncols=5, save_dir=result_dir/'Fermi Summary.png')
 
         plot_window.plotting_window.destroy()
-        self.main.lift()
+        self.main.attributes('-topmost', True)
+        self.main.attributes('-topmost', False) # temporarily bring main window to the forefront
         messagebox.showinfo('Plotting Done!', 'Successfully converted NW output into plots')
         
 if __name__ == '__main__':        
