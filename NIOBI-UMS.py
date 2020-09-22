@@ -53,7 +53,7 @@ class NIOBIUMS_App:
     '''The Separation App itself. NIOBI-UMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOBI-UMS v1.1-beta')
+        self.main.title('NIOBI-UMS v1.2-beta')
         self.main.geometry('412x197')
 
         #Frame 1
@@ -166,7 +166,7 @@ class NIOBIUMS_App:
         split_proportion = self.split_prop_entry.get_value()
         split_complement = round(1 - split_proportion, 4)   # rounding to 4 places should avoid float error for typical proportions (noted here for future debugging)
         
-        kept_species_count = {species : (species in self.unfamiliars and 0 or round(split_proportion*count))
+        kept_species_count = {species : (species not in self.unfamiliars and round(split_proportion*count) or 0) # OR must be in this order; everything is familiar if 0 comes first
                                     for species, count in self.species_count.items()} # set number of instances of each species to keep to 0 if they are unfamiliars... 
                                                                                       # ...(i.e not kept) or to the nearset interger to the proportion specified otherwise
         if self.select_unfams.get():   # if unfamiliars have been chosen
