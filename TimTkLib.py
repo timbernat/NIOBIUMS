@@ -9,8 +9,8 @@ import math # needed for ceiling function
 class ConfirmButton: 
     '''A basic confirmation button, will execute whatever function is passed to it
     when pressed. Be sure to exclude parenthesis when passing the bound functions'''
-    def __init__(self, frame, funct, padx=5, row=0, col=0, cs=1, sticky=None):
-        self.button =tk.Button(frame, text='Confirm Selection', command=funct, padx=padx)
+    def __init__(self, frame, command, padx=5, row=0, col=0, cs=1, sticky=None):
+        self.button =tk.Button(frame, text='Confirm Selection', command=command, padx=padx)
         self.button.grid(row=row, column=col, columnspan=cs, sticky=sticky)
         
         
@@ -34,9 +34,10 @@ class StatusBox:
             
 class DynOptionMenu:
     '''My addon to the TKinter OptionMenu, adds methods to conveniently update menu contents'''
-    def __init__(self, frame, var, option_method, default=None, width=10, row=0, col=0, colspan=1):
+    def __init__(self, frame, var, option_method, opargs=(), default=None, width=10, row=0, col=0, colspan=1):
         self.option_method = option_method
-        self.default=default
+        self.opargs = opargs # any additional arguments that need to be passed to the option-getting method
+        self.default = default
         self.menu = tk.OptionMenu(frame, var, (None,) )
         self.menu.configure(width=width)
         self.menu.grid(row=row, column=col, columnspan=colspan)
@@ -56,27 +57,23 @@ class DynOptionMenu:
     
     def update(self):
         self.contents.delete(0, 'end')
-        for option in self.option_method():
+        for option in self.option_method(*self.opargs):
             self.contents.add_command(label=option, command=lambda x=option: self.var.set(x))
         self.reset_default()
         
 class NumberedProgBar():
     '''Progress bar which displays the numerical proportion complete (out of the set total) in the middle of the bar'''
-    def __init__(self, frame, total, default=0, style_num=1, length=240, row=0, col=0, cs=1):
+    def __init__(self, frame, total, default=0, style_num=1, length=260, row=0, col=0, cs=1):
         self.curr_val = None
         self.default = default
         self.total = total
         self.style = ttk.Style(frame)
         
-        self.style_name = f'text.Horizontal.TProgressbar{style_num}'
+        self.style_name = f'NumberedProgBar{style_num}'
         self.style.layout(self.style_name, 
              [('Horizontal.Progressbar.trough', {'children': [('Horizontal.Progressbar.pbar', {'side': 'left', 'sticky': 'ns'})],
                                                  'sticky': 'nswe'}),
               ('Horizontal.Progressbar.label', {'sticky': ''})]) 
-        
-        #s.layout("LabeledProgressbar",
-             #[('LabeledProgressbar.trough', {'children': [('LabeledProgressbar.pbar',{'side': 'left', 'sticky': 'ns'}),("LabeledProgressbar.label",{"sticky": ""})]
-                                             #,'sticky': 'nswe'})])
         
         self.prog_bar = ttk.Progressbar(frame, style=self.style_name, orient='horizontal', length=length, maximum=total)
         self.prog_bar.grid(row=row, column=col, columnspan=cs)
@@ -250,9 +247,9 @@ class CheckPanel:
         
 class SelectionWindow:
     '''The window used in -IUMS programs to select species for evaluation'''
-    def __init__(self, main, parent_frame, size, selections, output, ncols=1):
+    def __init__(self, main, parent_frame, size, selections, output, window_title='Select Members to Include', ncols=1):
         self.window = tk.Toplevel(main)
-        self.window.title('Select Members to Include')
+        self.window.title(window_title)
         self.window.geometry(size)
         self.parent = parent_frame
         self.parent.disable()
