@@ -53,7 +53,7 @@ class NIOBIUMS_App:
     '''The Separation App itself. NIOBI-UMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOBI-UMS-2.3-alpha')
+        self.main.title('NIOBI-UMS v1.1-beta')
         self.main.geometry('412x197')
 
         #Frame 1
@@ -170,7 +170,7 @@ class NIOBIUMS_App:
                                     for species, count in self.species_count.items()} # set number of instances of each species to keep to 0 if they are unfamiliars... 
                                                                                       # ...(i.e not kept) or to the nearset interger to the proportion specified otherwise
         if self.select_unfams.get():   # if unfamiliars have been chosen
-            training_desc = 'No {}'.format(', '.join(self.unfamiliars))  
+            training_desc = f'No {", ".join(self.unfamiliars)}'  
         else:
             training_desc = 'Control Run'
         self.file_dir = Path('Training Files',self.data_file.stem,f'{split_proportion}-{split_complement} split, {training_desc}')
@@ -254,7 +254,7 @@ class NIOBIUMS_App:
         try:
             result_dir.mkdir()
         except PermissionError: # catch the exception wherein mkdir fails because the folder is inadvertently open
-            messagebox.showerror('Permission Error', f'Couldn\'t rewrite folders while {result_dir} was open! \nPlease click "Plot Results" again')
+            messagebox.showerror('Permission Error', f'{result_dir} cannot be overwritten while open!\n Please click "Plot Results" again')
             return 
     
         plot_window = PlottingWindow(self.main, num_cycles=len(self.chem_data)+1) # increase number of plots by 1 to account for the extra Fermi Plot summary
@@ -262,8 +262,8 @@ class NIOBIUMS_App:
             fermi_summary = []
             
             for family, species_data in self.result_data.items():
-                family_header = '{}\n{}\n{}\n'.format('-'*20, family, '-'*20)
-                score_file.write(family_header)    # an underlined heading for each family
+                family_header = f'{"-"*20}\n{family}\n{"-"*20}\n' # an underlined heading for each family
+                score_file.write(family_header)    
                 family_scores = []  # necessary in order to sort in ascending order of score when writing
 
                 for species, (names, predictions, fermi_data, num_correct) in species_data.items():
@@ -275,19 +275,24 @@ class NIOBIUMS_App:
                     predictions.insert(0, [iumsutils.average(column) for column in zip(*predictions)]) # prepend standardized sum of predictions to predictions
                     names.insert(0, 'Standardized Summation')                                          # prepend label to the above list to the titles list
                     prediction_plots = [ ((self.family_mapping.keys(), prediction), name, 'p') for name, prediction in zip(names, predictions) ] # all the prediction plots 
-
-                    fermi_plot = (sorted(fermi_data, reverse=True), '{}, {}/{} correct'.format(species, num_correct, len(predictions)), 'f')
+                    
+                    fermi_data.sort(reverse=True)
+                    try:
+                        fermi_data = iumsutils.normalized(fermi_data)
+                    except ZeroDivisionError: # if all data have the same value (e.g all 1.0), max=min and min/max normalization will fail
+                        pass                  # skip over the set if this is the case               
+                    fermi_plot = (fermi_data, f'{species}, {num_correct}/{len(predictions)} correct', 'f')
                     all_plots = (fermi_plot, *prediction_plots)
 
                     fermi_summary.append(fermi_plot)
                     iumsutils.adagraph(all_plots, save_dir=result_dir/f'{species}.png')  
                     if species in self.unfamiliars:
-                        iumsutils.adagraph(all_plots, save_dir='Condensed Unfamiliar Plots'/f'.{species}.png') # make a copy of the results in a shared, accessible folder
+                        iumsutils.adagraph(all_plots, save_dir='Condensed Unfamiliar Plots'/f'{species}.png') # make a copy of the results in a shared, accessible folder
 
                 family_scores.sort(key=lambda x : x[1], reverse=True)
                 family_scores.append( ('AVERAGE', iumsutils.average([score for (species, score) in family_scores], precision=4)) ) #note the average method does not accept generators
                 for (species, score) in family_scores:
-                    score_file.write('{} : {}\n'.format(species, score))
+                    score_file.write(f'{species} : {score}\n')
 
         plot_window.set_next_species('Fermi Plot Summary')
         iumsutils.adagraph(fermi_summary, ncols=5, save_dir=result_dir/'Fermi Summary.png')
