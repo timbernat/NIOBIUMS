@@ -4,7 +4,7 @@ from tkinter import messagebox
 from tkinter import filedialog
 
 # Custom imports
-import r_iumsutils as iumsutils           # library of functions specific to my "-IUMS" class of IMS Neural Network applications
+import iumsutils           # library of functions specific to my "-IUMS" class of IMS Neural Network applications
 import TimTkLib as ttl     # library of custom tkinter widgets I've written to make GUI assembly more straightforward
 
 # Builtin imports (expect for matplotlib)
