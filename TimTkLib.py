@@ -9,19 +9,22 @@ import math # needed for ceiling function
 class ConfirmButton: 
     '''A basic confirmation button, will execute whatever function is passed to it
     when pressed. Be sure to exclude parenthesis when passing the bound functions'''
-    def __init__(self, frame, command, padx=5, row=0, col=0, cs=1, sticky=None):
-        self.button =tk.Button(frame, text='Confirm Selection', command=command, padx=padx)
+    def __init__(self, frame, command, padx=5, row=0, col=0, cs=1, color='deepskyblue2', sticky='e'):
+        self.button =tk.Button(frame, text='Confirm Selection', command=command, bg=color, padx=padx)
         self.button.grid(row=row, column=col, columnspan=cs, sticky=sticky)
         
         
 class StatusBox:
     '''A simple label which changes color and gives indictation of the status of something'''
-    def __init__(self, frame, on_message='On', off_message='Off', status=False, width=17, padx=0, row=0, col=0):
+    def __init__(self, frame, on_message='On', off_message='Off', default_status=False, width=17, padx=0, row=0, col=0):
         self.on_message = on_message
         self.off_message = off_message
+        
         self.status_box = tk.Label(frame, width=width, padx=padx)
         self.status_box.grid(row=row, column=col)
-        self.set_status(status)
+        
+        self.default = default_status
+        self.reset_default()
         
     def set_status(self, status):
         if type(status) != bool:
@@ -30,6 +33,9 @@ class StatusBox:
             self.status_box.configure(bg='green2', text=self.on_message)
         else:
             self.status_box.configure(bg='light gray', text=self.off_message)
+            
+    def reset_default(self):
+        self.set_status(self.default)
             
             
 class DynOptionMenu:
@@ -62,11 +68,11 @@ class DynOptionMenu:
         self.reset_default()
         
 class NumberedProgBar():
-    '''Progress bar which displays the numerical proportion complete (out of the set total) in the middle of the bar'''
-    def __init__(self, frame, total, default=0, style_num=1, length=260, row=0, col=0, cs=1):
+    '''Progress bar which displays the numerical proportion complete (out of the set maximum) in the middle of the bar'''
+    def __init__(self, frame, maximum, default=0, style_num=1, length=260, row=0, col=0, cs=1):
         self.curr_val = None
         self.default = default
-        self.total = total
+        self.maximum = maximum
         self.style = ttk.Style(frame)
         
         self.style_name = f'NumberedProgBar{style_num}'
@@ -75,26 +81,34 @@ class NumberedProgBar():
                                                  'sticky': 'nswe'}),
               ('Horizontal.Progressbar.label', {'sticky': ''})]) 
         
-        self.prog_bar = ttk.Progressbar(frame, style=self.style_name, orient='horizontal', length=length, maximum=total)
+        self.prog_bar = ttk.Progressbar(frame, style=self.style_name, orient='horizontal', length=length, maximum=maximum)
         self.prog_bar.grid(row=row, column=col, columnspan=cs)
         self.reset()
         
-    def set_progress(self, val):
-        if val > self.total:
-            raise ValueError # ensure that the progressbar is not set betond the total
-        else:
-            self.curr_val = val
-            self.prog_bar.configure(value=self.curr_val)
-            self.style.configure(self.style_name, text=f'{self.curr_val}/{self.total}')
-        
-    def increment(self):
-        if self.curr_val == self.total:
-            return # don't increment when full
-        else:
-            self.set_progress(self.curr_val+1) 
+    def configure(self, **kwargs): # wrapper for tkinter "configure()" method
+        self.prog_bar.configure(**kwargs)
             
     def reset(self):
         self.set_progress(self.default)
+        
+    def set_progress(self, val):
+        if val > self.maximum:
+            raise ValueError # ensure that the progressbar is not set betond the maximum
+        else:
+            self.curr_val = val
+            self.configure(value=self.curr_val)
+            self.style.configure(self.style_name, text=f'{self.curr_val}/{self.maximum}')
+            
+    def set_max(self, new_max):
+        '''change the maximum value of the progress bar (including the label)'''
+        self.maximum = new_max
+        self.configure(maximum = new_max)
+        
+    def increment(self):
+        if self.curr_val == self.maximum:
+            return # don't increment when full
+        else:
+            self.set_progress(self.curr_val+1) 
 
 
 class ToggleFrame(tk.LabelFrame):
@@ -104,19 +118,22 @@ class ToggleFrame(tk.LabelFrame):
         tk.LabelFrame.__init__(self, window, text=text, padx=padx, pady=pady, bd=2, relief='groove')
         self.grid(row=row, column=col)
         self.state = default_state
-        self.apply_state()
+        self.apply_state(default_state)
     
-    def apply_state(self):
+    def apply_state(self, new_state):
+        self.state = new_state
         for widget in self.winfo_children():
-            widget.configure(state = self.state)
+            try:
+                widget.configure(state = self.state)
+            except tk.TclError: # tkinter.ttk widgets are enabled and disabled completely differently, for no good reason
+                state = ((self.state == 'normal') and '!disabled' or self.state)
+                widget.state([state])
             
     def enable(self):
-        self.state = 'normal'
-        self.apply_state()
+        self.apply_state('normal')
      
     def disable(self):
-        self.state ='disabled'
-        self.apply_state()
+        self.apply_state('disabled')
     
     def toggle(self):
         if self.state == 'normal':
@@ -132,8 +149,8 @@ class LabelledEntry:
         self.default = default
         self.var = var
         self.reset_default()
-        self.label = tk.Label(frame, text=text, state=state)
-        self.label.grid(row=row, column=col)
+        self.label = tk.Label(frame, text=text, padx=2, state=state)
+        self.label.grid(row=row, column=col, sticky='w')
         self.entry = tk.Entry(frame, width=width, textvariable=self.var, state=state)
         self.entry.grid(row=row, column=col+1)
         
@@ -152,26 +169,32 @@ class LabelledEntry:
         
     
 class Switch: 
-    '''An interactive switch button, clicking inverts the boolean state and status display. State can be accessed
-    via the <self>.state() method or with the <self>.var.get() attribute to use dynamically with tkinter'''
-    def __init__(self, frame, text, value=False, dep_state='normal', dependents=None, width=10, row=0, col=0):
+    '''An interactive switch button, clicking inverts the boolean state and status display. State can be accessed via the <self>.value attribute'''
+    def __init__(self, frame, text, default_value=False, dep_state='normal', dependents=None, width=10, 
+                 on_text='Enabled', on_color='green2', off_color='red', off_text='Disabled', row=0, col=0,):
         self.label = tk.Label(frame, text=text)
         self.label.grid(row=row, column=col)
         self.switch = tk.Button(frame, width=width, command=self.toggle)
         self.switch.grid(row=row, column=col+1)
+        
+        self.on_text = on_text
+        self.on_color = on_color
+        self.off_text = off_text
+        self.off_color = off_color
     
         self.dependents = dependents
         self.dep_state = dep_state
-        self.value = value
-        self.apply_state()
+        self.value = default_value
+        self.apply_state(default_value)
     
     def get_text(self):
-        return self.value and 'Enabled' or 'Disabled'
+        return self.value and self.on_text or self.off_text
         
     def get_color(self):
-        return self.value and 'green2' or 'red' 
+        return self.value and self.on_color or self.off_color
     
-    def apply_state(self):
+    def apply_state(self, value):
+        self.value = value
         self.dep_state = (self.value and 'normal' or 'disabled')
         self.switch.configure(text=self.get_text(), bg=self.get_color())
         if self.dependents:
@@ -179,12 +202,10 @@ class Switch:
                 widget.configure(state=self.dep_state)
                 
     def enable(self):
-        self.value = True
-        self.apply_state()
+        self.apply_state(True)
      
     def disable(self):
-        self.value = False
-        self.apply_state()
+        self.apply_state(False)
     
     def toggle(self):
         if self.value:
@@ -218,26 +239,25 @@ class GroupableCheck:
 class CheckPanel:
     '''A panel of GroupableChecks, allows for simple selectivity of the contents of some list. 
     Behaves like RadioButtons, except selection of multiple (or even all) buttons is allowedd'''
-    def __init__(self, frame, data, output, state='normal', ncols=4, row_start=0, col_start=0):
+    def __init__(self, frame, data, output, default_state='normal', ncols=4, row_start=0, col_start=0):
         self.output = output
-        self.state = state
+        self.state = default_state
         self.row_span = math.ceil(len(data)/ncols)
         self.panel = [ GroupableCheck(frame, val, output, state=self.state, row=row_start + i//ncols, col=col_start + i%ncols) for i, val in enumerate(data) ]
         
     def wipe_output(self):
         self.output.clear()
         
-    def apply_state(self):
+    def apply_state(self, new_state):
+        self.state = new_state
         for gc in self.panel:
             gc.configure(state=self.state)
     
     def enable(self):
-        self.state = 'normal'
-        self.apply_state()
+        self.apply_state('normal')
      
     def disable(self):
-        self.state = 'disabled'
-        self.apply_state()
+        self.apply_state('disabled')
     
     def toggle(self):
         if self.state == 'normal':
