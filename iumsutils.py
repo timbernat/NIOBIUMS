@@ -31,13 +31,6 @@ def counter(iterable):
     return counts
         
 # some general-purpose utilities
-def get_by_filetype(extension, path=Path.cwd()):  
-    '''Get all files of a particular file type present in a given directory, (the current directory by default)'''
-    filetypes_present = tuple(file.name for file in path.iterdir() if file.suffix == extension)
-    if filetypes_present == ():
-        filetypes_present = (None,)
-    return filetypes_present
-   
 def ordered_and_counted(iterable):
     '''Takes an iterable of items and returns a sorted set of the items, and a dict of the counts of each item
     Specifically useful for getting the listing and counts of both species and families when jsonizing or transforming'''
@@ -60,6 +53,26 @@ def one_hot_mapping(iterable):
 def get_RIP(mode1_spectrum):
     '''Naive but surprisingly effective method for identifying the RIP value for Mode 1 spectra'''
     return max(mode1_spectrum[:len(mode1_spectrum)//2]) # takes the RIP to be the maximum value in the first half of the spectrum
+
+#file and path utilities
+def get_by_filetype(extension, path=Path.cwd()):  
+    '''Get all files of a particular file type present in a given directory, (the current directory by default)'''
+    filetypes_present = tuple(file.name for file in path.iterdir() if file.suffix == extension)
+    if filetypes_present == ():
+        filetypes_present = (None,)
+    return filetypes_present
+
+def clear_folder(path):
+    '''Clear out the contents of a folder. A more tactful approach than without deleting the folder and remaking it'''
+    if not path.is_dir():
+        raise ValueError(f'{path} does not point to a folder')
+    
+    for file in path.iterdir():
+        if file.is_dir():
+            clear_folder(file) # recursively clear any subfolders, as path can only delete empty files
+            file.rmdir()
+        else:
+            file.unlink()
 
 # utilities for handling instance naming and information packaging
 def sort_instance_names(name_list, key=lambda x:x):
