@@ -9,60 +9,28 @@ import TimTkLib as ttl     # library of custom tkinter widgets I've written to m
 
 # Builtin imports (expect for matplotlib)
 import json, re  
+from random import shuffle
 from pathlib import Path
-from shutil import rmtree
-import matplotlib.pyplot as plt
    
     
-class PlottingWindow:
-    '''A window which displays plotting progress, was easier to subclass outside of the main GUI class'''
-    def __init__(self, main, num_cycles):
-        self.main = main
-        self.plotting_window = tk.Toplevel(main)
-        self.plotting_window.title('Plotting Progress')
-        self.plotting_window.geometry('374x57')
-        self.plotting_window.attributes('-topmost', True)
-        
-        # Status Printouts
-        self.status_frame = ttl.ToggleFrame(self.plotting_window, '', padx=13)
-        
-        self.species_label =  tk.Label(self.status_frame, text='Currently Plotting: ')
-        self.curr_species =   tk.Label(self.status_frame, text='---')
-        self.progress_label = tk.Label(self.status_frame, text='Plotting Progress: ')
-        self.progress =       ttl.NumberedProgBar(self.status_frame, total=num_cycles, length=240, default=1, row=1, col=1) 
-        
-        self.species_label.grid(  row=0, column=0)
-        self.curr_species.grid(   row=0, column=1, sticky='w')
-        self.progress_label.grid( row=1, column=0)
-        #NumberedProgBar is already gridded
-    
-    def set_species(self, species):
-        self.curr_species.configure(text=species)
-        self.main.update()
-        
-    def set_next_species(self, species):  
-        '''For straightforwardly incrementing progress with each new species'''
-        self.set_species(species)
-        self.progress.increment()
-        
-    def set_progress(self, cycle):
-        self.progress.set_progress(cycle)
-        self.main.update()
-        
 class NIOBIUMS_App:
-    '''The Separation App itself. NIOBI-UMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
+    '''NIOBIUMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOBI-UMS v1.3-beta')
-        self.main.geometry('412x197')
+        self.main.title('NIOBIUMS v1.5-beta')
+        self.main.geometry('412x255')
 
         #Frame 1
-        self.data_frame = ttl.ToggleFrame(self.main, text='Select JSON to Read: ', padx=6, pady=5, row=0)
+        self.data_frame = ttl.ToggleFrame(self.main, text='Select Data File to Read: ', padx=6, pady=5, row=0)
         self.chosen_file, self.data_file = tk.StringVar(), None   
-        self.chem_data, self.species, self.families, self.family_mapping, self.species_count = {}, [], [], {}, {}
+        self.chem_data, self.species, self.families, self.family_mapping, self.species_count = [], [], [], {}, {}
+        
+        self.data_path = Path('Spectral Datasets') # this is the folder where NIOBIUMS will check and read data files
+        if not self.data_path.exists(): # make a folder if none exists
+            self.data_path.mkdir()
         
         self.json_menu = ttl.DynOptionMenu(self.data_frame, var=self.chosen_file, option_method=iumsutils.get_by_filetype,
-                                           opargs=('.json',), default='--Choose a JSON--', width=28, colspan=2)
+                                           opargs=('.json', self.data_path), default='--Choose a JSON--', width=28, colspan=2)
         self.read_label =     tk.Label(self.data_frame, text='Read Status:')
         self.read_status =    ttl.StatusBox(self.data_frame, on_message='JSON Read!', off_message='No File Read', row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh JSONs', command=self.json_menu.update, padx=12)
@@ -73,27 +41,36 @@ class NIOBIUMS_App:
         
         
         #Frame 2
-        self.species_frame = ttl.ToggleFrame(self.main, text='Set Learn/Test File Parameters:', padx=14, pady=5, row=1)
+        self.species_frame = ttl.ToggleFrame(self.main, text='Set Learn/Test File Parameters:', padx=12, pady=5, row=1)
         self.select_unfams = tk.BooleanVar()
         self.unfamiliars = []
         self.file_dir = None
 
         self.split_prop_entry = ttl.LabelledEntry(self.species_frame, 'Set Proportion for Learn: ', tk.DoubleVar(), default=0.8)
         self.unfamiliar_check = tk.Checkbutton(self.species_frame, text='Unfamiliars?', variable=self.select_unfams, command=self.further_sel)
-        self.skip_to_plotting = tk.Button(self.species_frame, text='Skip to Plotting', padx=55, command=self.choose_and_replot)
-        self.splitting_button = tk.Button(self.species_frame, text='Perform Splitting', padx=2, command=self.separate_and_write)
+        self.skip_to_plotting = tk.Button(self.species_frame, text='Replot Existing Results', padx=40, command=self.choose_and_replot)
+        self.splitting_button = tk.Button(self.species_frame, text='Perform Splitting', padx=2, bg='deepskyblue2', command=self.separate_and_write)
         
         self.unfamiliar_check.grid(row=0, column=2, sticky='w')
         self.skip_to_plotting.grid(row=1, column=0, columnspan=2, sticky='w')
-        self.splitting_button.grid(row=1, column=2, sticky='w')
+        self.splitting_button.grid(row=1, column=2, sticky='e')
         
         
         #Frame 3
-        self.plotting_frame = ttl.ToggleFrame(self.main, text='', padx=0, pady=0, row=2)
-        self.result_data = {}
+        self.plotting_frame = ttl.ToggleFrame(self.main, text='Plot Training Results', padx=0, pady=0, row=2)
+        self.species_summaries = []
+
+        self.species_label  = tk.Label(self.plotting_frame, text='Currently Plotting: ')
+        self.curr_species   = tk.Label(self.plotting_frame, text='---')
+        self.progress_label = tk.Label(self.plotting_frame, text='Plotting Progress: ')
+        self.progress       = ttl.NumberedProgBar(self.plotting_frame, maximum=100, length=220, default=0, row=1, col=1)
+        self.plot_button    = tk.Button(self.plotting_frame, text='Plot Training Results', padx=109, bg='deepskyblue2', command=self.plot_nnr)
         
-        self.plot_button = tk.Button(self.plotting_frame, text='Plot Training Results', padx=109, bg='dodger blue', command=self.plot_nnr)
-        self.plot_button.grid(row=0, column=2, sticky='e')
+        self.species_label.grid(  row=0, column=0)
+        self.curr_species.grid(   row=0, column=1, sticky='w')
+        self.progress_label.grid( row=1, column=0)
+        #NumberedProgBar is already gridded
+        self.plot_button.grid(row=2, column=0, columnspan=2,sticky='e')
         
         
         #Misc/Other
@@ -101,12 +78,19 @@ class NIOBIUMS_App:
         self.reset_button = tk.Button(self.main, text='Reset', padx=17, pady=2, bg='orange', command=self.reset)
         
         self.exit_button.grid( row=0, column=1, sticky='s')
-        self.reset_button.grid(row=2, column=1)
+        self.reset_button.grid(row=2, column=1, sticky='s')
         
+        self.arrays = (self.chem_data, self.species, self.families, self.family_mapping, self.unfamiliars, self.species_count, self.species_summaries)
         self.frames = (self.data_frame, self.species_frame, self.plotting_frame)
         self.isolate(self.data_frame)
-    
+        self.lift() 
+        
     #General Methods
+    def lift(self):
+        '''Bring GUI window to front of tabs'''
+        self.main.attributes('-topmost', True)
+        self.main.attributes('-topmost', False)
+    
     def isolate(self, on_frame):
         '''Enable just one frame.'''
         for frame in self.frames:
@@ -115,25 +99,37 @@ class NIOBIUMS_App:
             else:
                 frame.disable()   
     
-    def update_data_file(self):
-        '''Used to assign the currently selected data file to an internal attribute'''
-        self.data_file = Path(self.chosen_file.get())
+    def prepare_folder(self, folder_path):
+        '''File management utility, guarantees that the specified folder exists and is empty, performs overwrite checks as necessary'''
+        if folder_path.exists():
+            if any(folder_path.iterdir()): # if the directory is not empty
+                if messagebox.askyesno('Duplicates Found', 'Folder with same data settings found;\nOverwrite old folder?'): # and user gives overwrite permission
+                    try:
+                        iumsutils.clear_folder(folder_path)
+                    except PermissionError: # throw error if files cannot be properly overwritten due to still being open
+                        messagebox.showerror('Permission Error', f'One or more files in {folder_path} are still open;\nPlease close all files and try again')
+                        return
+                else:
+                    return # exit if user does not allow overwrite                  
+        else:
+            folder_path.mkdir(parents=True)
     
     def reset(self):
         '''Reset the menu and internal variables to their original state'''   
-        for array in (self.chem_data, self.species, self.families, self.family_mapping, 
-                      self.unfamiliars, self.species_count, self.result_data):
+        for array in self.arrays:
             array.clear() 
         self.file_dir = None
-        self.update_data_file()
+        self.data_file = None
         
         self.read_status.set_status(False)
         self.json_menu.reset_default()
         self.split_prop_entry.reset_default()
         self.unfamiliar_check.deselect()
-        
+
+        self.progress.set_max(100)
+        self.progress.reset()
         self.isolate(self.data_frame)
-    
+ 
     def exit(self):
         '''Close the application, with confirm prompt'''
         if messagebox.askokcancel('Exit', 'Are you sure you want to close?'):
@@ -143,13 +139,18 @@ class NIOBIUMS_App:
     #Frame 1 (File selection) Methods     
     def import_data(self):
         '''Read in data based on the selected data file'''
-        self.update_data_file()
-        if self.data_file == '--Choose a JSON--':
+        if self.chosen_file.get() == '--Choose a JSON--':
             messagebox.showerror('File Error', 'No JSON selected')
         else:
+            self.data_file = Path(self.data_path/self.chosen_file.get())
             with open(self.data_file) as json_file:
-                self.chem_data, self.species, self.families, self.family_mapping, spectrum_size,\
-                self.species_count, family_count = json.load(json_file).values() # spectrum size and family count are discarded after function is run (not needed)
+                json_data = json.load(json_file)
+            self.chem_data = [iumsutils.Instance(*properties) for properties in json_data['chem_data']] # unpack data into Instance objects
+            self.species = json_data['species']
+            self.families = json_data['families']
+            self.family_mapping = json_data['family_mapping']
+            self.species_count = json_data['species_count']
+            
             self.read_status.set_status(True)
             self.isolate(self.species_frame)
     
@@ -173,33 +174,24 @@ class NIOBIUMS_App:
             training_desc = f'No {", ".join(self.unfamiliars)}'  
         else:
             training_desc = 'Control Run'
-        self.file_dir = Path('Training Files',self.data_file.stem,f'{split_proportion}-{split_complement} split, {training_desc}')
-
-        if self.file_dir.exists():   # prompt user to overwrite file if one already exists
-            if messagebox.askyesno('Duplicates Found', 'Folder with same data settings found;\nOverwrite old folder?'):
-                rmtree(self.file_dir, ignore_errors=True)
-            else:
-                return  #terminate prematurely if overwrite permission is not given
-        try:
-            self.file_dir.mkdir(parents=True)
-        except PermissionError: # catch the exception wherein mkdir fails because the folder is inadvertently open
-            messagebox.showerror('Permission Error', f'Couldn\'t rewrite folders while {self.file_dir} was open! \nPlease click "Perform Splitting" again')
-            return    
             
+        self.file_dir = Path('Training Files',self.data_file.stem,f'{split_proportion}-{split_complement} split, {training_desc}')
+        self.prepare_folder(self.file_dir) # file management to ensure a file exists
+   
         learn_labels, test_labels = [], []
         with open(self.file_dir/'TTT_testfile.txt', 'w') as test_file, open(self.file_dir/'LLL_learnfile.txt', 'w') as learn_file:    
-            for species, instances in self.chem_data.items():               
-                for instance, (spectrum, vector) in instances.items():  
-                    stringy_data = map(str, [*spectrum, *vector]) # unpack the data into a single long list of strings
-                    formatted_entry = '\t'.join(stringy_data) + '\n' # tab-separate the stringy data and follow it with a newline for readability
+            shuffle(self.chem_data) # randomize the data to improve quality of train/test splitting
+            for instance in self.chem_data:               
+                stringy_data = map(str, [*instance.spectrum, *instance.vector]) # unpack the data into a single long list of strings
+                formatted_entry = '\t'.join(stringy_data) + '\n' # tab-separate the stringy data and follow it with a newline for readability
 
-                    if self.species_count[species] > kept_species_count[species]:  # if the current amount of a species present is greater than the amount we'd like to keep
-                        test_labels.append(instance)
-                        test_file.write(formatted_entry)
-                        self.species_count[species] -= 1
-                    else:
-                        learn_labels.append(instance)
-                        learn_file.write(formatted_entry) 
+                if self.species_count[instance.species] > kept_species_count[instance.species]:  # if we have more instances of a species than the amount we'd like to keep
+                    test_labels.append(instance.name)
+                    test_file.write(formatted_entry)
+                    self.species_count[instance.species] -= 1
+                else:
+                    learn_labels.append(instance.name)
+                    learn_file.write(formatted_entry) 
                                
         with open(self.file_dir/'Test Labels.json', 'w') as test_labels_file, open(self.file_dir/'Learn Labels.json', 'w') as learn_labels_file: 
             json.dump(test_labels, test_labels_file)    # write the labels associated with each file to jsons for records and later access if replotting
@@ -210,102 +202,58 @@ class NIOBIUMS_App:
                 
     def choose_and_replot(self):
         '''Allow the user to pick a folder from which to replot'''
-        self.file_dir = Path(filedialog.askdirectory(initialdir='\Training Folders', title='Select folder with .nnr file'))
+        self.file_dir = Path(filedialog.askdirectory(initialdir='.\Training Files', title='Select folder with .nnr file'))
         self.isolate(self.plotting_frame)
         
+        
     # Frame 3
-    def plot_nnr(self):
-        '''Method used to extract the data from the .nnr file created post-evalutaion, piar the the data with the
-        correct species in the test names file, and plot the data in an identical manner to PLATIN-UMS results'''
-        
-        if not Path(self.file_dir/'TTT_testfile_txt.nnr').exists():
-            messagebox.showerror('No NNR File Present!', 'Please perform training before attempting plotting')
-            return # show error prompt and do nothing if no nnr file exists (i.e. training has not occurred)
-
-        self.result_data = {family : # build up an empty dict (organized by family and species) to populate with data and then unpack for plotting/scores
-                                {species : [ [], [], [], 0 ]
-                                 for species in self.chem_data.keys() 
-                                     if iumsutils.get_family(species) == family} 
-                            for family in self.family_mapping.keys()}
-
-        with open(self.file_dir/'Test Labels.json', 'r') as test_labels_file, open(self.file_dir/'TTT_testfile_txt.nnr', 'r') as result_file:
-            test_labels, nnr_data = json.load(test_labels_file), [row for row in result_file] # read in results and corresponding labels
-            
-        for instance, row in zip(test_labels, nnr_data): # attach the names to the appropriate plaintext data and iterate
-            names, predictions, fermi_data, nc = species_data = self.result_data[iumsutils.get_family(instance)][iumsutils.isolate_species(instance)]
-            
-            row_data = [float(i) for i in re.split('\t|\n', row)[1:-1]]  # remove tabs and newlines from nnr rows and convert them to numerical data
-            vector, aavs = row_data[:5], row_data[5:],  # first five values in each row are the onehot vector, last 5 are the predictions values 
-            target = aavs[vector.index(1)] # prediction value that the model has assigned to the actual identity of the instance
-            
-            num_correct = 0
-            names.append(instance)
-            predictions.append(aavs)
-            fermi_data.append(target)
-            if target == max(aavs):
-                species_data[3] += 1 #TEMPORARY while I figure out why lists integers are suddenly immutable
-        
-        result_dir = self.file_dir/'Result Plots'
-        if result_dir.exists():   # prompt user to overwrite file if one already exists
-            if messagebox.askyesno('Duplicates Found', 'Plot folder already exists; Overwrite?'):
-                rmtree(result_dir, ignore_errors=True)
-            else:
-                return  #terminate prematurely if overwrite permission is not given
-        try:
-            result_dir.mkdir()
-        except PermissionError: # catch the exception wherein mkdir fails because the folder is inadvertently open
-            messagebox.showerror('Permission Error', f'{result_dir} cannot be overwritten while open!\n Please click "Plot Results" again')
-            return 
+    def set_next_species(self, species):  
+        '''For straightforwardly incrementing the menu progress bar with each new species'''
+        self.curr_species.configure(text=species)
+        self.progress.increment()
+        self.main.update()
     
-        plot_window = PlottingWindow(self.main, num_cycles=len(self.chem_data)+1) # increase number of plots by 1 to account for the extra Fermi Plot summary
-        with open(result_dir/'Scores.txt', 'w') as score_file:                  
-            fermi_summary = []
+    def read_and_label_predictions(self):
+        '''Reads in the assigned prediction values from the nnr, matches them to the names in the labels file, returns a zipped list of both'''
+        with open(self.file_dir/'TTT_testfile_txt.nnr', 'r') as result_file, open(self.file_dir/'Test Labels.json', 'r') as test_labels_file:         
+            # when reading the nnr, for each row strip off the tabs and newlines, convert to floats, and keep only the last 5 values (the aavs)
+            predictions = [ [float(point) for point in re.split('\t|\n', row)[1:-1]][-5:] for row in result_file ]
+            test_labels = json.load(test_labels_file) # read in the name labels for the test set
+        return test_labels, predictions
+    
+    def plot_nnr(self):
+        '''Method used to process and plot the test data from the .nnr after training'''
+        if not Path(self.file_dir/'TTT_testfile_txt.nnr').exists(): 
+            messagebox.showerror('No NNR File Present!', 'Please perform training before attempting plotting')
+            return # terminate prematurely if no file is present
+        
+        result_dir = self.file_dir/'Result Plots' 
+        self.prepare_folder(result_dir)
+
+        unfam_dir = self.file_dir.parents[0]/'Condensed Unfamiliar Plots'
+        if not unfam_dir.exists(): # ensure a condensed unfamiliar plot folder really exists
+            unfam_dir.mkdir(parents=True)
+        
+        iumsutils.SpeciesSummary.family_mapping = self.family_mapping # MUST assign the current mapping to the species summary class
+        self.species_summaries = [iumsutils.SpeciesSummary(species) for species in self.species]
+        for spec_sum in self.species_summaries:
+            spec_sum.add_all_insts(*self.read_and_label_predictions()) # only add the appropriate instances to each species summary, settled for O(n*k) complexity for now
+        
+        self.progress.set_max(len(self.species)+1) # number of plots, plus the summaries (fermi plots and scores), hence + 1
+        for spec_sum in self.species_summaries: # plotting the results for each species
+            curr_species = spec_sum.species
+            self.set_next_species(curr_species) # remember to increment progressbar and update the current species
+            spec_sum.graph(save_dir=result_dir/curr_species) 
             
-            for family, species_data in self.result_data.items():
-                family_header = f'{"-"*20}\n{family}\n{"-"*20}\n' # an underlined heading for each family
-                score_file.write(family_header)    
-                family_scores = []  # necessary in order to sort in ascending order of score when writing
+            if curr_species in self.unfamiliars: # also plot the species' result in a shared folder if unfamiliar
+                spec_sum.graph(save_dir=unfam_dir/curr_species) # make a copy of the results in a shared, accessible folder
 
-                for species, (names, predictions, fermi_data, num_correct) in species_data.items():
-                    plot_window.set_next_species(species)
+        self.set_next_species('Fermi Plot Summary and Score File') 
+        iumsutils.unpack_summaries(self.species_summaries, save_dir=result_dir)
 
-                    num_total = len(predictions) # NOTE!! must do this here, as after prepending the summary, all scores will be one longer than they should be
-                    score = round(num_correct/num_total, 4) # for future, consider an alternate way of counting totals (likely once num_correct gets sorted out)
-                    family_scores.append((species, score))
-                    
-                    fermi_data.sort(reverse=True)
-                    try:
-                        fermi_data = iumsutils.normalized(fermi_data)
-                    except ZeroDivisionError: # if all data have the same value (e.g all 1.0), max=min and min/max normalization will fail
-                        pass                  # skip over the set if this is the case               
-                    fermi_plot = (fermi_data, f'{species}, {num_correct}/{num_total} correct', 'f')
-
-                    predictions.insert(0, [iumsutils.average(column) for column in zip(*predictions)]) # prepend standardized sum of predictions to predictions
-                    names.insert(0, 'Standardized Summation')                                          # prepend label to the above list to the titles list
-                    prediction_plots = [ ((self.family_mapping.keys(), prediction), name, 'p') for name, prediction in zip(names, predictions) ] # all the prediction plots 
-                    
-                    all_plots = (fermi_plot, *prediction_plots)
-
-                    fermi_summary.append(fermi_plot)
-                    iumsutils.adagraph(all_plots, save_dir=result_dir/species)  
-                    if species in self.unfamiliars:
-                        unfam_dir = Path(self.file_dir.parent,'Condensed Unfamiliar Plots')
-                        if not unfam_dir.exists(): # ensure a condensed unfam plot folder really exists
-                            unfam_dir.mkdir(parents=True)
-                        iumsutils.adagraph(all_plots, save_dir=unfam_dir/species) # make a copy of the results in a shared, accessible folder
-
-                family_scores.sort(key=lambda x : x[1], reverse=True)
-                family_scores.append( ('AVERAGE', iumsutils.average([score for (species, score) in family_scores], precision=4)) ) #note the average method does not accept generators
-                for (species, score) in family_scores:
-                    score_file.write(f'{species} : {score}\n')
-
-        plot_window.set_next_species('Fermi Plot Summary')
-        iumsutils.adagraph(fermi_summary, ncols=5, save_dir=result_dir/'Fermi Summary.png')
-
-        plot_window.plotting_window.destroy()
-        self.main.attributes('-topmost', True)
-        self.main.attributes('-topmost', False) # temporarily bring main window to the forefront
-        messagebox.showinfo('Plotting Done!', 'Successfully converted NW output into plots')
+        self.lift()
+        self.curr_species.configure(text='Plotting Complete')
+        messagebox.showinfo('Plotting Complete!', 'Successfully converted NW output into plots')
         
 if __name__ == '__main__':        
     main_window = tk.Tk()
