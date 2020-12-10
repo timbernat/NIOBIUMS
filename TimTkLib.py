@@ -7,10 +7,9 @@ import math # needed for ceiling function
 
 
 class ConfirmButton: 
-    '''A basic confirmation button, will execute whatever function is passed to it
-    when pressed. Be sure to exclude parenthesis when passing the bound functions'''
-    def __init__(self, frame, command, padx=5, row=0, col=0, cs=1, color='deepskyblue2', sticky='e'):
-        self.button =tk.Button(frame, text='Confirm Selection', command=command, bg=color, padx=padx)
+    '''A nice, basic blue confirmation button, will execute the function passed when pressed (remember to omit parenthesis!)'''
+    def __init__(self, frame, command, padx=5, pady=1, underline=None, row=0, col=0, cs=1, color='deepskyblue2', sticky='e'):
+        self.button = tk.Button(frame, text='Confirm Selection', command=command, bg=color, underline=underline, padx=padx, pady=pady)
         self.button.grid(row=row, column=col, columnspan=cs, sticky=sticky)
         
         
@@ -69,7 +68,7 @@ class DynOptionMenu:
         
 class NumberedProgBar():
     '''Progress bar which displays the numerical proportion complete (out of the set maximum) in the middle of the bar'''
-    def __init__(self, frame, maximum, default=0, style_num=1, length=260, row=0, col=0, cs=1):
+    def __init__(self, frame, maximum=100, default=0, style_num=1, length=260, row=0, col=0, cs=1):
         self.curr_val = None
         self.default = default
         self.maximum = maximum
@@ -93,7 +92,7 @@ class NumberedProgBar():
         
     def set_progress(self, val):
         if val > self.maximum:
-            raise ValueError # ensure that the progressbar is not set betond the maximum
+            raise ValueError('Current progress value exceeds maximum') # ensure that the progressbar is not set beyond the maximum
         else:
             self.curr_val = val
             self.configure(value=self.curr_val)
@@ -103,6 +102,7 @@ class NumberedProgBar():
         '''change the maximum value of the progress bar (including the label)'''
         self.maximum = new_max
         self.configure(maximum = new_max)
+        self.set_progress(self.curr_val) # ensures that the display updates without incrementing the count, and performs max value check to boot
         
     def increment(self):
         if self.curr_val == self.maximum:
@@ -145,11 +145,11 @@ class ToggleFrame(tk.LabelFrame):
 class LabelledEntry:
     '''An entry with an adjacent label to the right. Use "self.get_value()" method to retrieve state of
     variable. Be sure to leave two columns worth of space for this widget'''
-    def __init__(self, frame, text, var, state='normal', default=None, width=10, row=0, col=0):
+    def __init__(self, frame, text, var, state='normal', default=None, underline=None, width=10, row=0, col=0):
         self.default = default
         self.var = var
         self.reset_default()
-        self.label = tk.Label(frame, text=text, padx=2, state=state)
+        self.label = tk.Label(frame, text=text, padx=2, underline=underline, state=state)
         self.label.grid(row=row, column=col, sticky='w')
         self.entry = tk.Entry(frame, width=width, textvariable=self.var, state=state)
         self.entry.grid(row=row, column=col+1)
@@ -170,9 +170,9 @@ class LabelledEntry:
     
 class Switch: 
     '''An interactive switch button, clicking inverts the boolean state and status display. State can be accessed via the <self>.value attribute'''
-    def __init__(self, frame, text, default_value=False, dep_state='normal', dependents=None, width=10, 
+    def __init__(self, frame, text, default_value=False, dep_state='normal', dependents=None, underline=None, width=10, 
                  on_text='Enabled', on_color='green2', off_color='red', off_text='Disabled', row=0, col=0,):
-        self.label = tk.Label(frame, text=text)
+        self.label = tk.Label(frame, text=text, underline=underline)
         self.label.grid(row=row, column=col)
         self.switch = tk.Button(frame, width=width, command=self.toggle)
         self.switch.grid(row=row, column=col+1)
@@ -192,6 +192,9 @@ class Switch:
         
     def get_color(self):
         return self.value and self.on_color or self.off_color
+    
+    def get_value(self):
+        return self.value
     
     def apply_state(self, value):
         self.value = value
@@ -223,7 +226,7 @@ class GroupableCheck:
         self.output = output
         self.state = state
         self.cb = tk.Checkbutton(frame, text=value, variable=self.var, onvalue=self.value, offvalue=None,
-                              state=self.state, command=self.edit_output)
+                              state=self.state, command=self.edit_output) 
         self.cb.grid(row=row, column=col, sticky='w')
         self.cb.deselect()
         
@@ -267,15 +270,16 @@ class CheckPanel:
         
 class SelectionWindow:
     '''The window used in -IUMS programs to select species for evaluation'''
-    def __init__(self, main, parent_frame, size, selections, output, window_title='Select Members to Include', ncols=1):
+    def __init__(self, main, parent_frame, selections, output, window_title='Select Members to Include', ncols=1):
         self.window = tk.Toplevel(main)
         self.window.title(window_title)
-        self.window.geometry(size)
         self.parent = parent_frame
-        self.parent.disable()
         
-        self.panel = CheckPanel(self.window, selections, output, ncols=ncols)
-        self.confirm = ConfirmButton(self.window, self.confirm, row=self.panel.row_span, col=ncols-1)
+        self.panel  = CheckPanel(self.window, selections, output, ncols=ncols)
+        self.button = tk.Button(self.window, text='Confirm Selection', command=self.confirm, bg='deepskyblue2', underline=0, padx=5)
+        self.button.grid(row=self.panel.row_span, column=ncols-1, sticky='nesw', padx=2, pady=2)
+        self.window.bind('c', lambda event : self.confirm()) # bind the confirmation command to the 'c' key
+        self.parent.disable() # disable the parent to ensure no cross-binding occurs
 
     def confirm(self):
         self.parent.enable()
