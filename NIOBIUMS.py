@@ -9,18 +9,17 @@ import plotutils           # library of custom plotting utilites which greatly s
 import TimTkLib as ttl     # library of custom tkinter widgets I've written to make GUI assembly more straightforward
 
 # Builtin imports (expect for matplotlib)
-import json
-from random import sample
+import json, os
 from pathlib import Path
    
-    
 class NIOBIUMS_App:
     '''NIOBIUMS = NeuralWare I/O Bookend Interface for Unlabelled Mobility Spectra'''
-    data_path = Path('Spectral Datasets') # this is the folder where NIOBIUMS will check and read data files
-    
+    default_paths = {'data_path' : Path('Spectral Datasets'),
+                     'result_path' : Path('Training Files')} # Configure names of default folders here
+
     def __init__(self, main):
         self.main = main
-        self.main.title('NIOBIUMS v1.65-beta')
+        self.main.title('NIOBIUMS v1.70-beta')
         
         self.quit_button =  tk.Button(self.main, text='Quit', padx=21, pady=27, underline=0, bg='red', command=self.quit)
         self.reset_button = tk.Button(self.main, text='Reset', padx=17, pady=2, underline=0, bg='orange', command=self.reset)
@@ -39,8 +38,9 @@ class NIOBIUMS_App:
         self.family_mapping = {}
         self.species_count  = {}
         
-        if not self.data_path.exists(): # make a folder if none exists
-            self.data_path.mkdir()
+        for path_type, path in self.default_paths.items(): # on creation, reference class-wide default paths to set up folders
+            path.mkdir(exist_ok=True)
+            setattr(self, path_type, path) # set internal object attribute
         
         self.data_frame  = ttl.ToggleFrame(self.main, text='Select Data File to Read: ', padx=6, pady=5, row=0)     
         
@@ -48,7 +48,7 @@ class NIOBIUMS_App:
         self.json_menu   = ttl.DynOptionMenu(self.data_frame, var=self.chosen_file, option_method=iumsutils.get_by_filetype,
                                            opargs=('.json', self.data_path), default='--Choose a JSON--', width=28, colspan=2)
         self.read_label     =  tk.Label(self.data_frame, text='Read Status:')
-        self.read_status    = ttl.StatusBox(self.data_frame, on_message='JSON Read!', off_message='No File Read', row=1, col=1)
+        self.read_status    = ttl.StatusBox(self.data_frame, on_message='JSON Read!', off_message='No File Read', default_status=False, row=1, col=1)
         self.refresh_button = tk.Button(self.data_frame, text='Refresh JSONs', underline=2, command=self.json_menu.update, padx=12)
         self.confirm_button = ttl.ConfirmButton(self.data_frame, padx=2, underline=0, command=self.import_data, row=1, col=2)
         
@@ -86,7 +86,7 @@ class NIOBIUMS_App:
         self.plot_button.grid(   row=2, column=0, columnspan=2,sticky='e')
         
     #Misc/Other
-        self.arrays = (self.chem_data, self.species, self.families, self.family_mapping, self.unfamiliars, self.species_count)
+        self.arrays = ('chem_data', 'species', 'families', 'family_mapping', 'unfamiliars', 'species_count') # name reference so attributes, rather than copies, clear on reset
         self.frames = (self.data_frame, self.species_frame, self.plotting_frame)
         self.main.bind('<Key>', self.key_in_input) # activate internal conditional hotkey binding
         self.isolate(self.data_frame)
@@ -143,14 +143,13 @@ class NIOBIUMS_App:
         '''Reset the menu and internal variables to their original state'''   
         self.file_dir  = None
         self.data_file = None
-        for array in self.arrays:
-            array.clear()         
+        for array_name in self.arrays:
+            getattr(self, array_name).clear()         
         
-        self.read_status.set_status(False)
-        self.json_menu.reset_default()
-        self.split_prop_entry.reset_default()
-        self.unfamiliar_check.deselect()
+        for ttl_widget in (self.read_status, self.json_menu, self.split_prop_entry):
+            ttl_widget.reset_default()
 
+        self.unfamiliar_check.deselect()
         self.progress.set_max(100)
         self.progress.reset()
         self.isolate(self.data_frame)
@@ -169,11 +168,9 @@ class NIOBIUMS_App:
             self.data_file = Path(self.data_path/f'{self.chosen_file.get()}.json')
             json_data = iumsutils.load_chem_json(self.data_file)
             
-            self.chem_data      = json_data['chem_data']
-            self.species        = json_data['species']
-            self.families       = json_data['families']
-            self.family_mapping = json_data['family_mapping']
-            self.species_count  = json_data['species_count']
+            for field_name in self.arrays:
+                if json_data.get(field_name): # this qualifier is here to exclude "unfamiliars", which is in arrays bu tis not a field in json data files
+                    setattr(self, field_name, json_data[field_name])
             
             self.read_status.set_status(True)
             self.isolate(self.species_frame)
@@ -190,13 +187,11 @@ class NIOBIUMS_App:
         split_prop = self.split_prop_entry.get_value()
         split_complement = round(1 - split_prop, 4)   # rounding to 4 places should avoid float error for typical proportions (noted here for future debugging)
          
-        # very crucially, the "0" branch of the and/or statment MUST be second, or the logic breaks down due to quirks in how these statments are parsed
-        species_to_keep = {species : iter(sample([i >= (species not in self.unfamiliars and round(split_prop*count) or 0) # construct iterator of randomly dispersed bools for...
-                                                         for i in range(count)], count)) # ...each species, such that the proportion of Trues rationally approximates the...
-                                     for species, count in self.species_count.items()} # proportion specified to keep (or is just 0, if the species is denoted unfamiliar)
+        species_to_keep = {species : iumsutils.random_partitioner(1 if species in app.unfamiliars else split_complement, count) # create iterators to randomly partition
+                                 for species, count in app.species_count.items()} # each species among the learn and test files, with the proportion specified
         
         training_desc = (self.select_unfams.get() and f'No {", ".join(self.unfamiliars)}' or 'Control Run') # create informative string about the set     
-        self.file_dir = Path('Training Files',self.data_file.stem,f'{split_prop}-{split_complement} split, {training_desc}')
+        self.file_dir = self.result_path/self.data_file.stem/f'{split_prop}-{split_complement} split, {training_desc}'
         self.prepare_folder(self.file_dir) # file management to ensure a file exists
    
         learn_labels, test_labels = [], []
@@ -216,13 +211,13 @@ class NIOBIUMS_App:
         with open(self.file_dir/'Test Labels.json', 'w') as test_labels_file, open(self.file_dir/'Learn Labels.json', 'w') as learn_labels_file: 
             json.dump(test_labels, test_labels_file)    # write the labels associated with each file to jsons for records and later access if replotting
             json.dump(learn_labels, learn_labels_file)
-        messagebox.showinfo('File Creation Successful!', 'Files can be found in "Training Files" folder\n\nPlease perform training, then proceed to plotting')
+        messagebox.showinfo('File Creation Successful!', f'Files can be found in "{self.result_path.name}" folder\n\nPlease perform training, then proceed to plotting')
         
         self.isolate(self.plotting_frame)
                 
     def choose_and_replot(self):
         '''Allow the user to pick a folder from which to replot'''
-        self.file_dir = Path(filedialog.askdirectory(initialdir='.\Training Files', title='Select folder with .nnr file'))
+        self.file_dir = Path(filedialog.askdirectory(initialdir=self.result_path, title='Select folder with .nnr file'))
         self.isolate(self.plotting_frame)
           
 # Frame 3
@@ -245,11 +240,11 @@ class NIOBIUMS_App:
                 if self.family_mapping[family] != vector:
                     raise ValueError(f'NeuralWare has mislabelled {inst_name} ({vector} rather than {self.family_mapping[family]})')
 
-                if not predictions.get(family):
+                if not predictions.get(family): # ensure family key exists
                     predictions[family] = {}
-                if not predictions[family].get(species):
+                if not predictions[family].get(species): # ensure species key exists
                     predictions[family][species] = {}
-                predictions[family][species][inst_name] = aavs
+                predictions[family][species][inst_name] = aavs # write predictions values to appropriate place in hierarchy
         
         return predictions
       
@@ -263,10 +258,9 @@ class NIOBIUMS_App:
         self.prepare_folder(result_dir)
 
         unfam_dir = self.file_dir.parents[0]/'Condensed Unfamiliar Plots'
-        if not unfam_dir.exists(): # ensure a condensed unfamiliar plot folder really exists
-            unfam_dir.mkdir(parents=True)
-        
-        plotutils.Base_RC.unit_circle = plotutils.Mapped_Unit_Circle(self.family_mapping) # set base unit circle based on the current mapping
+        unfam_dir.mkdir(parents=True, exist_ok=True)
+
+        plotutils.Base_RC.set_uc_mapping(self.family_mapping) # set base unit circle based on the current mapping
         predictions = self.read_and_label_predictions()
         self.progress.set_max(len(self.species)+1) # number of plots, plus the summaries (fermi plots and scores), hence + 1
         
@@ -310,7 +304,9 @@ class NIOBIUMS_App:
     
         self.lift()
         self.curr_species.configure(text='Plotting Complete')
-        messagebox.showinfo('Plotting Complete!', 'Successfully converted NW output into plots')
+        if messagebox.askyesno('Plotting Complete!', 'Successfully converted NW output into plots: view results?'):
+            os.startfile(result_dir)
+        self.reset()
         
 if __name__ == '__main__':        
     main_window = tk.Tk()
