@@ -3,7 +3,8 @@ Widgets, in the order they appear, are ConfirmButton, StatusBox, DynOptionMenu, 
 NumberedProgBar, LabelledEntry, Switch, GroupableCheck, CheckPanel, and SelectionWindow'''
 import tkinter as tk
 import tkinter.ttk as ttk
-import math # needed for ceiling function
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class ConfirmButton: 
@@ -117,6 +118,8 @@ class ToggleFrame(tk.LabelFrame):
     def __init__(self, window, text, default_state='normal', padx=5, pady=5, row=0, col=0):
         tk.LabelFrame.__init__(self, window, text=text, padx=padx, pady=pady, bd=2, relief='groove')
         self.grid(row=row, column=col)
+        
+        self.main = window
         self.state = default_state
         self.apply_state(default_state)
     
@@ -145,15 +148,19 @@ class ToggleFrame(tk.LabelFrame):
 class LabelledEntry:
     '''An entry with an adjacent label to the right. Use "self.get_value()" method to retrieve state of
     variable. Be sure to leave two columns worth of space for this widget'''
-    def __init__(self, frame, text, var, state='normal', default=None, underline=None, width=10, row=0, col=0):
-        self.default = default
+    def __init__(self, frame, text, var, state='normal', default=None, underline=None, width=10, spacing=(0,0), row=0, col=0):           
         self.var = var
-        self.reset_default()
-        self.label = tk.Label(frame, text=text, padx=2, underline=underline, state=state)
-        self.label.grid(row=row, column=col, sticky='w')
-        self.entry = tk.Entry(frame, width=width, textvariable=self.var, state=state)
-        self.entry.grid(row=row, column=col+1)
         
+        left, right = spacing # unpack padding to be placed on either side of the object
+        self.label = tk.Label(frame, text=text, padx=2, underline=underline, state=state)
+        self.entry = tk.Entry(frame, width=width, textvariable=self.var, state=state, validate='all', validatecommand=((frame.main.register(self.callback)), '%P'))
+        
+        self.label.grid(row=row, column=col,   sticky='w', padx=(left, 0))  # entry and label will always touch, regardless of other parameters
+        self.entry.grid(row=row, column=col+1, sticky='w', padx=(0, right)) # entry occupies column adjacent to label
+        
+        self.default = default
+        self.reset_default()
+    
     def get_value(self):
         return self.var.get()
     
@@ -162,6 +169,9 @@ class LabelledEntry:
     
     def reset_default(self):
         self.var.set(self.default)
+        
+    def callback(self, P): # restricts input to integers
+        return (str.isdigit(P) or P == '')
     
     def configure(self, **kwargs):   # allows for disabling in ToggleFrames
         self.label.configure(**kwargs)
@@ -170,8 +180,8 @@ class LabelledEntry:
     
 class Switch: 
     '''An interactive switch button, clicking inverts the boolean state and status display. State can be accessed via the <self>.value attribute'''
-    def __init__(self, frame, text, default_value=False, dep_state='normal', dependents=None, underline=None, width=10, 
-                 on_text='Enabled', on_color='green2', off_color='red', off_text='Disabled', row=0, col=0,):
+    def __init__(self, frame, text, default=False, dep_state='normal', dependents=None, toggle_action=None, underline=None, width=10, 
+                 on_text='Enabled', on_color='green2', off_color='red', off_text='Disabled', row=0, col=0):
         self.label = tk.Label(frame, text=text, underline=underline)
         self.label.grid(row=row, column=col)
         self.switch = tk.Button(frame, width=width, command=self.toggle)
@@ -182,39 +192,42 @@ class Switch:
         self.off_text = off_text
         self.off_color = off_color
     
-        self.dependents = dependents
+        self.dependents = dependents # list containing other tk or ttl objects who's normal/disabled status depends on this switch instance's value
         self.dep_state = dep_state
-        self.value = default_value
-        self.apply_state(default_value)
+        self.toggle_action = toggle_action # an additional action to be carried out on each toggle operation; must be a method that takes a boolean argument
+        self.value = default
+        self.default = default
     
-    def get_text(self):
-        return self.value and self.on_text or self.off_text
-        
-    def get_color(self):
-        return self.value and self.on_color or self.off_color
+    def reset_default(self):
+        self.set_value(self.default)
     
     def get_value(self):
         return self.value
     
-    def apply_state(self, value):
+    def set_value(self, value):
         self.value = value
-        self.dep_state = (self.value and 'normal' or 'disabled')
-        self.switch.configure(text=self.get_text(), bg=self.get_color())
+        state, text, color = self.value and ('normal', self.on_text, self.on_color) or ('disabled', self.off_text, self.off_color)
+        
+        self.switch.configure(text=text, bg=color)
+        self.dep_state = state
         if self.dependents:
             for widget in self.dependents:
                 widget.configure(state=self.dep_state)
                 
     def enable(self):
-        self.apply_state(True)
+        self.set_value(True)
      
     def disable(self):
-        self.apply_state(False)
+        self.set_value(False)
     
     def toggle(self):
         if self.value:
             self.disable()
         else:
-            self.enable()  
+            self.enable()
+        
+        if self.toggle_action: # execute the toggle action if one is specified
+            self.toggle_action(self.value)
            
         
 class GroupableCheck:
@@ -225,8 +238,8 @@ class GroupableCheck:
         self.value = value
         self.output = output
         self.state = state
-        self.cb = tk.Checkbutton(frame, text=value, variable=self.var, onvalue=self.value, offvalue=None,
-                              state=self.state, command=self.edit_output) 
+        
+        self.cb = tk.Checkbutton(frame, text=value, variable=self.var, onvalue=self.value, offvalue=None, state=self.state, command=self.edit_output) 
         self.cb.grid(row=row, column=col, sticky='w')
         self.cb.deselect()
         
@@ -238,15 +251,18 @@ class GroupableCheck:
             
     def configure(self, **kwargs):
         self.cb.configure(**kwargs)
-            
+
+ceildiv = lambda a, b : -(a // -b) # ceiling analogue of floor division, useful for scaling grids by span
+
 class CheckPanel:
     '''A panel of GroupableChecks, allows for simple selectivity of the contents of some list. 
     Behaves like RadioButtons, except selection of multiple (or even all) buttons is allowedd'''
     def __init__(self, frame, data, output, default_state='normal', ncols=4, row_start=0, col_start=0):
-        self.output = output
-        self.state = default_state
-        self.row_span = math.ceil(len(data)/ncols)
-        self.panel = [ GroupableCheck(frame, val, output, state=self.state, row=row_start + i//ncols, col=col_start + i%ncols) for i, val in enumerate(data) ]
+        self.output   = output
+        self.state    = default_state
+        self.row_span = ceildiv(len(data), ncols)
+        
+        self.panel = [GroupableCheck(frame, val, output, state=self.state, row=row_start + i//ncols, col=col_start + i%ncols) for i, val in enumerate(data)]
         
     def wipe_output(self):
         self.output.clear()
@@ -273,14 +289,94 @@ class SelectionWindow:
     def __init__(self, main, parent_frame, selections, output, window_title='Select Members to Include', ncols=1):
         self.window = tk.Toplevel(main)
         self.window.title(window_title)
-        self.parent = parent_frame
         
+        self.parent = parent_frame     
         self.panel  = CheckPanel(self.window, selections, output, ncols=ncols)
-        self.button = tk.Button(self.window, text='Confirm Selection', command=self.confirm, bg='deepskyblue2', underline=0, padx=5)
-        self.button.grid(row=self.panel.row_span, column=ncols-1, sticky='nesw', padx=2, pady=2)
-        self.window.bind('c', lambda event : self.confirm()) # bind the confirmation command to the 'c' key
+        
+        self.confirm_button    = tk.Button(self.window, text='Confirm Selection', command=self.window.destroy, bg='deepskyblue2', underline=0, padx=5)
+        self.choose_all_button = tk.Button(self.window, text='Toggle All', command=self.toggle_all, underline=7, padx=15)
+        
+        self.confirm_button.grid(   row=self.panel.row_span, column=ncols-1, sticky='nesw', padx=2, pady=2)
+        self.choose_all_button.grid(row=self.panel.row_span, column=ncols-2, sticky='nesw', pady=2)
+        
+        self.window.bind('c', lambda event : self.window.destroy())    # bind the confirmation command to the 'c' key
+        self.window.bind('a', lambda event : self.toggle_all()) # bind the select all option to the 'a' key
+        
         self.parent.disable() # disable the parent to ensure no cross-binding occurs
+        
+    def __del__(self):
+        '''Destructor method with ensures parent window is re-enabled when selection window is closed'''
+        self.parent.enable() 
 
-    def confirm(self):
-        self.parent.enable()
-        self.window.destroy()
+    def toggle_all(self):
+        '''Invert state of all checks in panel, making appropriate list changes in the process'''
+        for option in self.panel.panel:
+            option.cb.invoke()
+        
+        
+class DynamicPlot:
+    def __init__(self, main, title, xlabel, ylabel, x_default=100, y_default=1, figsize=5, dpi=45, line_color='r', row=0, col=0, rs=1, cs=1):
+        '''A matplotlib plot embedded in a TK window which can efficiently plot and update lines through arbitrary point'''
+        self.fig = plt.figure(figsize=(figsize, figsize), dpi=dpi)       
+        self.plot_window = FigureCanvasTkAgg(self.fig, main)
+        self.plot_window.get_tk_widget().grid(row=row, column=col, rowspan=rs, columnspan=cs)
+        self.x_default, self.y_default = x_default, y_default 
+        
+        self.ax = self.fig.add_subplot(1, 1, 1)
+        self.ax.set_title(title)
+        self.ax.set_xlabel(xlabel)
+        self.ax.set_ylabel(ylabel)   
+
+        self.bg = None
+        self.x, self.y = [], []  
+        (self.line,) = self.ax.plot(self.x, self.y, line_color + '-', animated=True) # add expandibility for multiple lines here
+        self.reset()
+        
+    def __del__(self):
+        plt.close() # close figure upon destruction (mainly applies to IPython window)
+    
+    def redraw(self):
+        '''Redraw figure and recapture background'''
+        self.plot_window.draw()
+        self.bg = self.fig.canvas.copy_from_bbox(self.fig.bbox)
+    
+    def update_xvals(self, x):
+        '''Add new x-value to relevant containers. Double x-axis range if a points x-value exceed the current x limits'''
+        self.x.append(x)
+        self.line.set_xdata(self.x)
+        
+        xmax = max(self.ax.get_xlim()) # second member of xlimits is max
+        if x > xmax: # increase x scale 10-fold if number of epochs goes off screen
+            self.ax.set_xlim(0, 2*xmax)
+            self.redraw()        
+            
+    def update_yvals(self, y):
+        '''Add new y-value to relevant containers. Expand y-axis range to accomodate a new point if its y-value exceed the current y limits'''
+        self.y.append(y)
+        self.line.set_ydata(self.y)
+    
+        ymax = max(self.ax.get_ylim()) # second member of xlimits is max
+        if y > ymax: # increase x scale 10-fold if number of epochs goes off screen
+            self.ax.set_ylim(0, y)
+            self.redraw() 
+            
+    def update(self, x, y): 
+        '''Plot a new point (x, y) along the existing line'''
+        self.update_xvals(x)
+        self.update_yvals(y)
+
+        self.fig.canvas.restore_region(self.bg)
+        self.ax.draw_artist(self.line)
+        self.fig.canvas.blit(self.ax.bbox)           
+    
+    def reset(self, cutoff=None):    
+        '''Blank out and reset plot'''
+        for data_list in (self.x, self.y, self.ax.lines):
+            data_list.clear()
+        
+        if cutoff:
+            self.ax.axhline(y=cutoff, linestyle='--', color='c')
+            
+        self.ax.set_xlim(0, self.x_default)
+        self.ax.set_ylim(0, self.y_default)
+        self.redraw()
