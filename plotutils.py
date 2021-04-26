@@ -61,7 +61,7 @@ class Mapped_Unit_Circle:
         ax.plot(*self.circle, 'k-')
         for i, (label, pole) in enumerate(zip(self.labels, self.poles)): # pass the poles and axes to the internal unit circle
             x, y = pole.real, pole.imag # unpack components f values
-            ax.plot(x, y, 'ro')        # plot the roots of unity
+            #ax.plot(x, y, 'ro')        # plot the roots of unity
             ax.plot([0, x], [0, y], 'y--')  # plot radial lines to each root
             ax.annotate(label, (x, y), ha='center') # label each root with the associated family, center horizontally
 
@@ -69,18 +69,23 @@ class Base_RC:
     '''Base Radar Chart class. Builds unit circle based on species mapping, can plot set of point along with unreduced centroid'''     
     unit_circle = None # !!CRITICAL!! - must set mapping for class prior to use
     
-    def __init__(self, title, points, point_marker='gx', centroid_marker='b*'):
+    @classmethod
+    def set_uc_mapping(cls, mapping): # sets background unit circle mapping for class - !!NOTE!! must be prior to use in order for RCs to work
+        cls.unit_circle = Mapped_Unit_Circle(mapping)
+        
+    def __init__(self, title, points, point_symbol='gx', centroid_symbol='b*'):
         self.title = title
         self.points = points
         
-        self.point_marker = point_marker
+        self.point_symbol = point_symbol
         self.centroid = sum(self.points)/len(points)
-        self.centroid_marker = centroid_marker
-            
-    def plot_point(self, coords, ax, marker='ro'):
+        self.centroid_symbol = centroid_symbol
+   
+    def plot_point(self, coords, ax, symbol='ro', size=6):
+        color, marker = symbol # unpack color and marker info from passed symbol - allows for tuple of color and marker to bypass single-character limit
         if type(coords) != tuple:
             coords = (coords.real, coords.imag)
-        ax.plot(*coords, marker) 
+        ax.plot(*coords, color=color, marker=marker, markersize=size) 
         
     def draw(self, axes, index=(0,0)):
         ax = axes[index] # index subplots within the passed plt.Axes object
@@ -90,66 +95,80 @@ class Base_RC:
             self.unit_circle.draw(ax) # plot the unit circle background
         
         for point in self.points:
-            self.plot_point(point, ax, marker=self.point_marker)
+            self.plot_point(point, ax, symbol=self.point_symbol)
             
-        if self.centroid_marker: # only plot the centroid if it is called for
-            self.plot_point(self.centroid, ax, marker=self.centroid_marker)
+        if self.centroid_symbol: # only plot the centroid if it is called for
+            self.plot_point(self.centroid, ax, symbol=self.centroid_symbol, size=14)
             
 class Instance_RC(Base_RC):
     '''0-order Radar Chart class for plotting the axial components and single centroid of a single instance'''
-    def __init__(self, dataset, inst_name, point_marker='gx', centroid_marker='b1'):
+    def __init__(self, dataset, inst_name, point_symbol='gx', centroid_symbol='b1'):
         aavs = dataset[get_family(inst_name)][isolate_species(inst_name)][inst_name] # perform the appropriate lookup for the species
         axial_points = [aav*pole for (aav, pole) in zip(aavs, Base_RC.unit_circle.poles)] # multiply aavs by axial conponents to obtain set of points
         
-        super().__init__(inst_name, axial_points, point_marker, centroid_marker)
+        super().__init__(inst_name, axial_points, point_symbol, centroid_symbol)
         self.centroid *= Base_RC.unit_circle.N # scale centroid by number of points in this case to better adhere to unit circle
         
 class Species_RC(Base_RC):
     '''1-order Radar Chart class for plotting centroid of all instances of a species'''
-    def __init__(self, dataset, species, point_marker='b1', centroid_marker='m*'):
+    def __init__(self, dataset, species, point_symbol='b1', centroid_symbol='m*'):
         inst_centroids = [Instance_RC(dataset, instance).centroid for instance in dataset[get_family(species)][species]]
-        super().__init__(species, inst_centroids, point_marker, centroid_marker)
+        super().__init__(species, inst_centroids, point_symbol, centroid_symbol)
         
 class Family_RC(Base_RC):
     '''2-order Radar Chart class for plotting centroid of all instances of a family'''
-    def __init__(self, dataset, family, point_marker='m*', centroid_marker='cs'):
+    def __init__(self, dataset, family, point_symbol='m*', centroid_symbol='cs'):
         spec_centroids = [Species_RC(dataset, species).centroid for species in dataset[family]]
-        super().__init__(family, spec_centroids, point_marker, centroid_marker)
-        
+        super().__init__(family, spec_centroids, point_symbol, centroid_symbol)
+
 class Overlaid_Family_RC(Base_RC):
     '''2.5-order Radar Chart class for plotting all families on a single diagram, color-coded '''
-    marker_map  = {
-        'Acetates': 'g^',
-        'Alcohols': 'r^',
-        'Aldehydes': 'y^',
-        'Ethers': 'b^',
-        'Ketones': 'm^'
+    colors = { # full color mapping given all currently supported chemical families
+            'Acetates' : 'g', 
+            'Alcohols' : 'r',
+            'Aldehydes': 'c',
+            'Alkanes'  : 'y',
+            'Alkenes'  : 'tab:pink',
+            'Alkynes'  : 'tab:purple',
+            'Amines'   : 'lime',
+            'Carboxylic Acids' : 'tab:orange',
+            'Ethers'   : 'b',
+            'Ketones'  : 'm'
     }
+    point_marker = '^' # allows for easy interchange of marker symbols
+    centroid_marker = 'x'
     
-    def __init__(self, dataset):
-        self.famsds = [Family_RC(dataset, family, point_marker=self.marker_map[family]) for family in dataset]
+    def __init__(self, dataset, title='Family Overlay'):
+        self.title = title
+        self.point_symbols = {family : (self.colors[family], self.point_marker) for family in dataset}
+        self.centroid_symbols = {family : (self.colors[family], self.centroid_marker) for family in dataset}
+        self.famsds = [Family_RC(dataset, family, point_symbol=self.point_symbols[family], centroid_symbol=self.centroid_symbols[family]) for family in dataset]
     
     def draw(self, axes, index=(0,0)):
         ax = axes[index]
         for fsd in self.famsds:
             fsd.draw(axes, index) # draw over one another
-        ax.set_title('Family Overlay')
+        ax.set_title(self.title)
             
-        markers = [ax.scatter(np.nan, np.nan, color=color, marker=marker) for (color, marker) in self.marker_map.values()] # plot fake points for legend
-        ax.legend(markers, self.marker_map.keys(), loc='lower right')
-
+        symbols = [ax.scatter(np.nan, np.nan, color=color, marker=marker) for (color, marker) in self.point_symbols.values()] # plot fake points for legend
+        ax.legend(symbols, self.point_symbols.keys(), loc='lower right')
+        
 class Macro_RC(Base_RC):
     '''3-order Radar Chart from plotting trends across all data'''
-    def __init__(self, dataset, point_marker='cs', centroid_marker='gp'):
+    def __init__(self, dataset, point_symbol='cs', centroid_symbol='gp'):
         fam_centroids = [Family_RC(dataset, family).centroid for family in dataset]
-        super().__init__('All Families', fam_centroids, point_marker, centroid_marker) 
+        super().__init__('All Families', fam_centroids, point_symbol, centroid_symbol) 
        
     
 # Line Plot classes
 class Line_Plot:
-    '''Basic class of line plot, allows for multiple lines and moveable legends, within the confines of the Mutiplot Framework'''
-    def __init__(self, *args, title=None, legend_pos=None, colormap={'line' : 'c-'}):
+    '''Basic class for plotting lines, allows for multiple lines, scalable x-axis, and moveable legends, within the confines of the Multiplot framework'''
+    def __init__(self, *args, x_range=None, title=None, legend_pos=None, colormap={'line' : 'c'}):
         self.lines = args
+        self.x_data = None
+        if x_range:
+            self.x_data = list(np.linspace(*x_range, num=len(self.lines[0]))) # made into list to avoid annoying numpy multi-element truth value error
+        
         self.legend_pos = legend_pos
         self.colormap = colormap
         self.title = title
@@ -159,21 +178,21 @@ class Line_Plot:
         ax.set_title(self.title)
         
         for line, (label, color) in zip(self.lines, self.colormap.items()):
-            ax.plot(line, color, label=label)
+            if self.x_data: 
+                ax.plot(self.x_data, line, color, label=label)
+            else:
+                ax.plot(line, color, label=label)
             
         if self.legend_pos:
             ax.legend(loc=self.legend_pos)
             
-class Metric_Plot(Line_Plot):
-    '''Subclass of Line_Plot for plotting training metrics'''
-    colormap = {'Loss' : 'r', 'Accuracy' : 'g'}
-    
-    def __init__(self, losses, accuracies, evals):
-        self.title = f'Loss, Acc={[round(i, 3) for i in evals]}'
-        super().__init__(losses, accuracies, title=self.title, legend_pos='center right', colormap=self.colormap)
+class Single_Line_Plot(Line_Plot):
+    '''Syntactic sugar for plotting a single line'''
+    def __init__(self, line, title=None, legend_pos=None, label='line', color='c'):
+        super().__init__(line, title=title, legend_pos=legend_pos, colormap={label : color})
         
 class PWA_Plot(Line_Plot):
-    '''Point-Wise Aggregate plot generation class'''
+    '''Child class of Line_Plot for generating Point-Wise Aggregate spectral plots'''
     colormap={
         'Maxima' : 'b',
         'Averages' : 'r',
@@ -187,14 +206,8 @@ class PWA_Plot(Line_Plot):
         self.minima   = np.amin(self.spectra, axis=0)
         super().__init__(self.maxima, self.averages, self.minima, title=species, legend_pos='upper right', colormap=self.colormap)
         
-        
-class Single_Line_Plot(Line_Plot):
-    '''Syntactic sugar for plotting a single line'''
-    def __init__(self, line, title=None, legend_pos=None, label='line', marker='c-'):
-        super().__init__(line, title=title, legend_pos=legend_pos, colormap={label : marker})
-        
 class Fermi_Plot(Single_Line_Plot):
-    '''Class for producing Fermi-Dirac plots from species-wide aavs'''
+    '''Child class of Single_Line_Plot for producing Fermi-Dirac plots from species-wide aavs'''
     def __init__(self, dataset, species, hotbit, precision=4):
         predictions = dataset[get_family(species)][species].values() # pull out a list of aavs      
         targets = [pred[hotbit] for pred in predictions]
@@ -204,7 +217,15 @@ class Fermi_Plot(Single_Line_Plot):
         n_total = len(predictions) 
         self.score = round(n_correct/n_total, precision)
         
-        super().__init__(normalized(targets), title=f'{species}, {n_correct}/{n_total} correct', marker='m-')
+        super().__init__(normalized(targets), title=f'{species}, {n_correct}/{n_total} correct', color='m-')
+        
+class Loss_Acc_Plot(Line_Plot):
+    '''Child class of Single_Line_Plot for plotting training loss and accuracy'''
+    colormap = {'Loss' : 'r', 'Accuracy' : 'g'}
+    
+    def __init__(self, losses, accuracies, evals):
+        self.title = f'Loss, Acc={[round(i, 3) for i in evals]}'
+        super().__init__(losses, accuracies, title=self.title, legend_pos='center right', colormap=self.colormap)
         
         
 # Bar Chart classes
@@ -253,18 +274,20 @@ class AAV_Bars(Multibar):
         super().__init__(families, [inst_name], aavs, title=inst_name, ylim=(0,1))
         
 # miscellaneous/combined classes
-def plot_and_get_score(species, spectra, dataset, losses, accuracies, evals, savedir='.'):
+def plot_and_get_score(species, spectra, dataset, metric_data, metric_final, savedir='.', metric_name='Error'):
     '''Rolls several classes into one convenient method for producing species summary plots and generating scores'''
     frame = Multiplot(nrows=2, ncols=2)
 
-    radar_chart = Species_RC(dataset, species)
+    radar_chart = Species_RC(dataset, species) # radar chart not created in-place to extract the hot bit
     hotbit = radar_chart.unit_circle.mapping[get_family(species)].index(1) # deduce hotbit from mapping and current species
     
     fermi_plot = Fermi_Plot(dataset, species, hotbit) # fermi plot not created in-place in order to extract the score
     score = fermi_plot.score
     
+    metric_plot = Single_Line_Plot(metric_data, title=f'Final {metric_name}: {metric_final}', color='r')
+    
     frame.draw(PWA_Plot(spectra, species), 0)
-    frame.draw(Metric_Plot(losses, accuracies, evals), 1)
+    frame.draw(metric_plot, 1)
     frame.draw(fermi_plot, 2)  
     frame.draw(radar_chart, 3)
     frame.save(f'{savedir}/{species}') # draw all four panels, then save the figure to the appropriate folder under the species' name
