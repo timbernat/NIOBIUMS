@@ -1,4 +1,4 @@
-import csv, json, re, collections
+import csv, json, random, re, collections
 from pathlib import Path
  
 # utilities specifically written to avoid having to import entire modules for a single object's functionality
@@ -43,6 +43,22 @@ def dictmerge(dictlist):
 def multikey(some_dict, keyset):
     '''Takes a dictionary and an iterable of keys and returns Bool of whether or not the dict contains ALL of the listed keys'''
     return all(key in some_dict for key in keyset)
+
+def partition(iterable, condition):
+    '''Separates an iterable into two lists based on a truthy condition which can be applied to each item.
+    Returns two lists, the first containing those which meet the condition and the second containing the rest'''
+    members, non_members = [], []
+    for item in iterable:
+        (members if condition(item) else non_members).append(item)
+    return members, non_members
+
+def random_partitioner(proportion, count):
+    '''Takes a proportion (0-1) and a count, returns an iterator (call with next(<iter>)) of length <count>.
+    Iterator yields a random sequence of bools, of which <proportion> (to a rational approximation) will be True'''
+    if not (0 <= proportion <= 1):
+        raise ValueError('Proportion must be between 0 and 1, inclusive')
+    else:
+        return iter(random.sample([i < proportion*count for i in range(count)], count))
 
 def one_hot_mapping(iterable):
     '''Takes and iterable and returns a dictionary of the values in the iterable, assigned sequentially to one-hot vectors
